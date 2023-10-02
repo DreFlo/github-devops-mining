@@ -31,7 +31,7 @@ def send_get_request_wait_for_rate_limit(**kwargs) -> requests.Response:
     
     response = requests.get(**kwargs)
     
-    if int(response.headers['X-RateLimit-Remaining']) == '0':
+    if response.headers['X-RateLimit-Remaining'] == '0':
         RATE_LIMIT_RESET_TIME = datetime.fromtimestamp(float(response.headers['X-RateLimit-Reset']))
 
     return response
