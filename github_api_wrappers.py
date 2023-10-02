@@ -256,13 +256,13 @@ def get_api_rate_limits() -> json:
 
     return response.json()
 
-full_names = get_repository_full_names(per_page=1)
+# full_names = get_repository_full_names(per_page=1)
 
 # print('Retrieve all commits')
 
 # start = time.time()
 
-commits_retrieve_all = get_snapshot_commits_retrieve_all_commits(full_name=full_names[0])
+# commits_retrieve_all = get_snapshot_commits_retrieve_all_commits(full_name=full_names[0])
 
 # end = time.time()
 
