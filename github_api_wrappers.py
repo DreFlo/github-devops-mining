@@ -9,6 +9,8 @@ import os
 from dotenv import load_dotenv
 
 from requests.structures import CaseInsensitiveDict
+from urllib.parse import parse_qs, urlparse
+
 
 # Load Github Token
 load_dotenv()
@@ -140,7 +142,7 @@ def get_repo_tree(full_name : str, tree_sha : str, recursive : bool = True) -> l
 
     response = send_get_request_wait_for_rate_limit(url=url, params=params, headers=headers)
 
-    return response.json()['tree']
+    return response.json()
 
 def get_commit_comparison(full_name : str, commit_1_sha : str, commit_2_sha) -> json:
     # Standard Request Header
@@ -177,16 +179,11 @@ def get_snapshot_commits_retrieve_all_commits(full_name : str, commit_interval :
     commits = get_repo_commits(full_name=full_name)
     return get_repo_snapshots(commits=commits, commit_interval=commit_interval)
 
-def get_snapshot_commits_query_timedelta(full_name : str, commit_interval : timedelta = timedelta(days=90)) -> list:
+def get_snapshot_commits_query_timedelta(full_name : str, created_at : datetime, updated_at : datetime, commit_interval : timedelta = timedelta(days=90)) -> list:
     result = []
 
-    repo_info = get_repo(full_name=full_name)
-
-    created_at = dateutil.parser.isoparse(repo_info['created_at'])
-    updated_at = dateutil.parser.isoparse(repo_info['updated_at'])
-
     # Get first commit
-    commits = get_repo_commits(full_name=full_name, until=(created_at + timedelta(days=7)).isoformat())
+    commits = get_repo_commits(full_name=full_name, until=(created_at + timedelta(days=30)).isoformat())
 
     if len(commits) == 0:
         print(f'Could not retrive first commit for {full_name}')
@@ -224,6 +221,25 @@ def get_snapshot_commits_query_timedelta(full_name : str, commit_interval : time
 
     return result
 
+def get_snapshot_commits_optimized(full_name : str, commit_count : int, created_at : datetime, updated_at : datetime, commit_interval : timedelta = timedelta(days=90)) -> list:
+    commit_density = commit_count / (updated_at - created_at).days # commits per day
+
+    print(f'Commit density: {commit_density}')
+
+    commit_interval_days = commit_interval.days
+
+    commits_per_interval = commit_interval_days * commit_density
+
+    print(f'Commits per interval: {commits_per_interval}')
+
+    # If, on average, there are less than 100 commits per interval, use the retrieve all commits method
+    # This is to optimize the number of requests made
+    if commits_per_interval <= 100: # Github API limit is 100 commits per page
+        return get_snapshot_commits_retrieve_all_commits(full_name=full_name, commit_interval=commit_interval)
+    else:
+        return get_snapshot_commits_query_timedelta(full_name=full_name, created_at=created_at, updated_at=updated_at,commit_interval=commit_interval)
+
+
 def get_repo_contents(full_name : str, path : str = '', sha : str = None) -> list:
     # Standard Request Header
     headers = CaseInsensitiveDict()
@@ -255,6 +271,20 @@ def get_api_rate_limits() -> json:
     response = send_get_request_wait_for_rate_limit(url=url, headers=headers)
 
     return response.json()
+
+# Function adapted from https://brianli.com/2022/07/python-get-number-of-commits-github-repository/
+def get_commits_count(repo_full_name : str) -> int:
+    """
+    Returns the number of commits to a GitHub repository.
+    """
+    url = f"https://api.github.com/repos/{repo_full_name}/commits?per_page=1"
+    r = requests.get(url)
+    links = r.links
+    rel_last_link_url = urlparse(links["last"]["url"])
+    rel_last_link_url_args = parse_qs(rel_last_link_url.query)
+    rel_last_link_url_page_arg = rel_last_link_url_args["page"][0]
+    commits_count = int(rel_last_link_url_page_arg)
+    return commits_count
 
 # full_names = get_repository_full_names(per_page=1)
 

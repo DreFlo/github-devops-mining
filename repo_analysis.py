@@ -119,7 +119,7 @@ print(f'Time taken to retrieve {len(repo_snapshot_trees)} snapshot trees: {end -
 
 start = time.time()
 
-repo_snapshot_devops_technologies = [get_devops_technologies(tree) for tree in repo_snapshot_trees]
+repo_snapshot_devops_technologies = [get_devops_technologies(tree['tree']) for tree in repo_snapshot_trees]
 
 end = time.time()
 
