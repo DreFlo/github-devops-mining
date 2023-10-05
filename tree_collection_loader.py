@@ -12,7 +12,7 @@ parser = argparse.ArgumentParser(description='Load trees from GitHub repositorie
 
 parser.add_argument('--delete-trees', action='store_true', help='Delete all trees from the trees collection')
 
-
+interrupt_number = 0
 interrupted = threading.Event()
 
 all_trees_retrieved = threading.Event()
@@ -50,20 +50,17 @@ def load_trees_into_database() -> None:
         tree_lock.release()
 
         print(Fore.BLUE + 'LOADER THREAD:\t' + Style.RESET_ALL + f'Adding {len(trees_to_load)} trees to database')
-
-        tries = 0
         
         start = time.time()
 
         # Insert the trees into the database
-        while not (tries != 0 and interrupted.is_set()):
+        while True:
             try:                
                 wrapper.add_trees(trees_to_load)
                 break
             except Exception as e:
                 print(e.details)
                 print(Fore.BLUE + 'LOADER THREAD:\t' + Fore.RED + 'Retrying to add trees' + Style.RESET_ALL)
-                tries += 1
                 continue        
 
         end = time.time()
@@ -125,9 +122,14 @@ def get_repository_trees(repositories : Cursor) -> None:
     all_trees_retrieved.set()
 
 def set_interrupted_flag(_signal, _frame) -> None:
-    global interrupted
-    print(Fore.LIGHTCYAN_EX + 'MAIN THREAD:\t' + Fore.RED + 'Interrupted, stopping after current repository or at error' + Style.RESET_ALL)
-    interrupted.set()
+    global interrupted, interrupt_number
+    interrupt_number += 1
+    if interrupt_number == 1:
+        print(Fore.LIGHTCYAN_EX + 'MAIN THREAD:\t' + Fore.YELLOW + 'Interrupted once, stopping after current repository' + Style.RESET_ALL)
+        interrupted.set()
+    elif interrupt_number == 2:
+        print(Fore.LIGHTCYAN_EX + 'MAIN THREAD:\t' + Fore.RED + 'Interrupted again, stopping immediately' + Style.RESET_ALL)
+        os._exit(1)
 
 def main():    
     wrapper = MongoDBWrapper()
