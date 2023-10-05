@@ -11,6 +11,7 @@ from colorama import Fore, Style
 parser = argparse.ArgumentParser(description='Load trees from GitHub repositories into MongoDB')
 
 parser.add_argument('--delete-trees', action='store_true', help='Delete all trees from the trees collection')
+parser.add_argument('--check-database', action='store_true', help='Check the database for inconsistencies')
 
 interrupt_number = 0
 interrupted = threading.Event()
@@ -20,6 +21,25 @@ all_trees_retrieved = threading.Event()
 tree_lock = threading.Lock()
 
 trees = []
+
+def split_tree_into_subtrees(tree : dict) -> list:
+        # Initialize subtrees with the root tree
+        subtrees = {'' : {'date' : tree['date'], 'repo_full_name' : tree['repo_full_name'], 'tree' : [], 'sha' : tree['sha'], 'path' : ''}}
+
+        # Add subtrees to the subtrees dictionary
+        for subtree in tree['tree']:
+            if subtree['type'] == 'tree':
+                subtrees[subtree['path']] = {'date' : tree['date'], 'repo_full_name' : tree['repo_full_name'], 'tree' : [], 'sha' : subtree['sha'], 'path' : subtree['path']}
+
+        # Add nodes to the subtrees
+        for node in tree['tree']:
+            subtree_path = '/'.join(node['path'].split('/')[:-1])
+
+            if subtree_path in subtrees:
+                subtrees[subtree_path]['tree'].append(node)
+
+        # Convert the subtrees dictionary to a list and return it
+        return list(subtrees.values())
 
 def load_trees_into_database() -> None:
     global interrupted, all_trees_retrieved, trees, tree_lock
@@ -44,8 +64,8 @@ def load_trees_into_database() -> None:
         tree_lock.acquire()
 
         # Get the trees to load
-        trees_to_load = trees[:50]
-        trees = trees[50:]
+        trees_to_load = trees[:1000]
+        trees = trees[1000:]
 
         tree_lock.release()
 
@@ -113,9 +133,17 @@ def get_repository_trees(repositories : Cursor) -> None:
 
         print(Fore.MAGENTA + 'GETTER THREAD:\t' + Style.RESET_ALL + f'Adding {len(repo_snapshot_trees)} trees from {repo_full_name} to loading queue')
 
+        repo_snapshot_subtrees = []
+
+        for tree in repo_snapshot_trees:
+            repo_snapshot_subtrees.extend(split_tree_into_subtrees(tree))
+
+        with open('repository_check_file', 'a') as check_file:
+            check_file.write(f'{{ "repo_full_name" : "{repo_full_name}", "trees" : {len(repo_snapshot_subtrees)} }}\n')
+
         tree_lock.acquire()
 
-        trees.extend(repo_snapshot_trees)
+        trees.extend(repo_snapshot_subtrees)
 
         tree_lock.release()
 
@@ -131,12 +159,32 @@ def set_interrupted_flag(_signal, _frame) -> None:
         print(Fore.LIGHTCYAN_EX + 'MAIN THREAD:\t' + Fore.RED + 'Interrupted again, stopping immediately' + Style.RESET_ALL)
         os._exit(1)
 
+def check_database() -> None:
+    wrapper = MongoDBWrapper()
+
+    with open('repository_check_file', 'r') as check_file:
+        for line in check_file:
+            check = json.loads(line)
+            repo_full_name = check['repo_full_name']
+            tree_count = check['trees']
+            database_tree_count = wrapper.count_repo_trees(repo_full_name)
+            if tree_count != database_tree_count:
+                print(f'{repo_full_name} has {tree_count} trees in the check file and {database_tree_count} trees in the database')
+
 def main():    
     wrapper = MongoDBWrapper()
 
     if parser.parse_args().delete_trees:
         print(Fore.LIGHTCYAN_EX + 'MAIN THREAD:\t' + Fore.RED + 'Deleting all trees from the trees collection' + Style.RESET_ALL)
-        wrapper.db.trees.delete_many({})
+        print("To delete all trees from the trees collection, type 'DELETE' and press enter")
+        if input() == 'DELETE':
+            wrapper.delete_all_trees()
+        return
+    
+    if parser.parse_args().check_database:
+        print(Fore.LIGHTCYAN_EX + 'MAIN THREAD:\t' + Fore.YELLOW + 'Checking database' + Style.RESET_ALL)
+        check_database()
+        return
 
     signal.signal(signal.SIGINT, set_interrupted_flag)
 

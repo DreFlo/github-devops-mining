@@ -23,37 +23,15 @@ class MongoDBWrapper:
     
     def get_repositories(self, filter : dict = {}, projection : dict = None) -> Cursor:
         return self.db["random"].find(filter, projection)
-    
-    def add_tree(self, tree : dict):
-        subtrees = self.split_tree_into_subtrees(tree)
-        # Insert 1000 subtrees at a time
-        for i in range(0, len(subtrees), 5000):
-            self.db["trees"].insert_many(subtrees[i:i+5000])
 
     def add_trees(self, trees : list):
-        subtrees = []
-        for tree in trees:
-            subtrees.extend(self.split_tree_into_subtrees(tree))
         # Insert 1000 subtrees at a time
-        for i in range(0, len(subtrees), 5000):
-            self.db["trees"].insert_many(subtrees[i:i+5000])
+        for i in range(0, len(trees), 5000):
+            self.db["trees"].insert_many(trees[i:i+5000])
 
-    def split_tree_into_subtrees(self, tree : dict) -> list:
-        # Initialize subtrees with the root tree
-        subtrees = {'' : {'date' : tree['date'], 'repo_full_name' : tree['repo_full_name'], 'tree' : [], 'sha' : tree['sha'], 'path' : ''}}
-
-        # Add subtrees to the subtrees dictionary
-        for subtree in tree['tree']:
-            if subtree['type'] == 'tree':
-                subtrees[subtree['path']] = {'date' : tree['date'], 'repo_full_name' : tree['repo_full_name'], 'tree' : [], 'sha' : subtree['sha'], 'path' : subtree['path']}
-
-        # Add nodes to the subtrees
-        for node in tree['tree']:
-            subtree_path = '/'.join(node['path'].split('/')[:-1])
-
-            if subtree_path in subtrees:
-                subtrees[subtree_path]['tree'].append(node)
-
-        # Convert the subtrees dictionary to a list and return it
-        return list(subtrees.values())
+    def count_repo_trees(self, repo_full_name : str) -> int:
+        return self.db["trees"].count_documents({"repo_full_name" : repo_full_name})
+    
+    def delete_all_trees(self):
+        self.db["trees"].delete_many({})
     
