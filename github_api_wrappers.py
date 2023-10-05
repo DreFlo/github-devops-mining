@@ -200,7 +200,6 @@ def get_snapshot_commits_query_timedelta(full_name : str, created_at : datetime,
     day_window = timedelta(days=7)
 
     while get_commit_timestamp(result[-1]) + commit_interval < updated_at:
-        print(f'Getting commits for {full_name}, day window: {day_window}')
         since = (get_commit_timestamp(result[-1]) + commit_interval - day_window).isoformat()
         until = (get_commit_timestamp(result[-1]) + commit_interval + day_window).isoformat()
 
@@ -245,7 +244,7 @@ def get_snapshot_commits_optimized(full_name : str, commit_count : int, created_
 
     # If, on average, there are less than 100 commits per interval, use the retrieve all commits method
     # This is to optimize the number of requests made
-    if commits_per_interval <= 100: # Github API limit is 100 commits per page
+    if commits_per_interval <= 200: # Github API limit is 100 commits per page
         return get_snapshot_commits_retrieve_all_commits(full_name=full_name, commit_interval=commit_interval)
     else:
         return get_snapshot_commits_query_timedelta(full_name=full_name, created_at=created_at, updated_at=updated_at,commit_interval=commit_interval)

@@ -6,21 +6,49 @@ from github_api_wrappers import *
 from mongodb_wrappers import *
 from colorama import Fore, Style
 
-# repo_full_names = get_repository_full_names(per_page=5)
+
+# Command line arguments
+parser = argparse.ArgumentParser(description='Load trees from GitHub repositories into MongoDB')
+
+parser.add_argument('--delete-trees', action='store_true', help='Delete all trees from the trees collection')
+
+
 
 wrapper = MongoDBWrapper()
 
 interrupted = threading.Event()
 
-parser = argparse.ArgumentParser(description='Load trees from GitHub repositories into MongoDB')
+tree_lock = threading.Lock()
 
-parser.add_argument('--create-indexes', action='store_true', help='Create indexes on the trees collection')
+trees = []
 
-parser.add_argument('--delete-trees', action='store_true', help='Delete all trees from the trees collection')
+def load_trees_into_database() -> None:
+    while True:
+        # Wait until there are trees to load
+        if len(trees) == 0:
+            time.sleep(5)
+            continue
 
-def load_repository_trees(filter : dict = {}) -> None:
+        tree_lock.acquire()
+
+        # Get the trees to load
+        trees_to_load = trees[:1000]
+        trees = trees[1000:]
+
+        tree_lock.release()
+
+        # Insert the trees into the database
+        wrapper.add_trees(trees_to_load)
+
+
+
+def get_repository_trees(filter : dict = {}) -> None:
     global interrupted
     repositories = wrapper.get_repositories(filter=filter, projection={"full_name": 1, "created_at": 1, "updated_at": 1, "_id": 0})
+
+    # Count the number of repositories
+    count = wrapper.db.random.count_documents(filter=filter)
+    print(f'Number of repositories: {count}')
 
     for repository in repositories:
         if interrupted.is_set():
@@ -67,7 +95,17 @@ def load_repository_trees(filter : dict = {}) -> None:
 
         start = time.time()
 
-        wrapper.add_trees(repo_snapshot_trees)
+        tries = 0
+
+        while not (tries != 0 and interrupted.is_set()):
+            try:                
+                wrapper.add_trees(repo_snapshot_trees)
+                break
+            except Exception as e:
+                print(e.details)
+                print(Fore.RED + 'Retrying' + Style.RESET_ALL)
+                tries += 1
+                continue
 
         end = time.time()
 
@@ -75,17 +113,18 @@ def load_repository_trees(filter : dict = {}) -> None:
 
 def set_interrupted_flag(_signal, _frame) -> None:
     global interrupted
-    print(Fore.RED + 'Interrupted, stopping after current repository' + Style.RESET_ALL)
+    print(Fore.RED + 'Interrupted, stopping after current repository or at error' + Style.RESET_ALL)
     interrupted.set()
 
 def main():
     if parser.parse_args().delete_trees:
         print(Fore.RED + 'Deleting all trees from the trees collection' + Style.RESET_ALL)
         wrapper.db.trees.delete_many({})
+        return
 
     signal.signal(signal.SIGINT, set_interrupted_flag)
 
-    loader_thread = threading.Thread(target=load_repository_trees, kwargs={'filter': {'full_name': 'facebook/react-native'}})
+    loader_thread = threading.Thread(target=get_repository_trees, kwargs={'filter': {}})
 
     loader_thread.start()
 

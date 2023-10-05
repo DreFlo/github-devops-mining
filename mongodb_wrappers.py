@@ -26,13 +26,17 @@ class MongoDBWrapper:
     
     def add_tree(self, tree : dict):
         subtrees = self.split_tree_into_subtrees(tree)
-        self.db["trees"].insert_many(subtrees)
+        # Insert 1000 subtrees at a time
+        for i in range(0, len(subtrees), 5000):
+            self.db["trees"].insert_many(subtrees[i:i+5000])
 
     def add_trees(self, trees : list):
         subtrees = []
         for tree in trees:
             subtrees.extend(self.split_tree_into_subtrees(tree))
-        self.db["trees"].insert_many(subtrees)
+        # Insert 1000 subtrees at a time
+        for i in range(0, len(subtrees), 5000):
+            self.db["trees"].insert_many(subtrees[i:i+5000])
 
     def split_tree_into_subtrees(self, tree : dict) -> list:
         # Initialize subtrees with the root tree
