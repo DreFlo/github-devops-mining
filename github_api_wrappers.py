@@ -234,17 +234,13 @@ def get_snapshot_commits_query_timedelta(full_name : str, created_at : datetime,
 def get_snapshot_commits_optimized(full_name : str, commit_count : int, created_at : datetime, updated_at : datetime, commit_interval : timedelta = timedelta(days=90)) -> list:
     commit_density = commit_count / (updated_at - created_at).days # commits per day
 
-    print(f'Commit density: {commit_density}')
-
     commit_interval_days = commit_interval.days
 
     commits_per_interval = commit_interval_days * commit_density
 
-    print(f'Commits per interval: {commits_per_interval}')
-
-    # If, on average, there are less than 100 commits per interval, use the retrieve all commits method
+    # If, on average, there are less than 200 commits per interval, use the retrieve all commits method
     # This is to optimize the number of requests made
-    if commits_per_interval <= 200: # Github API limit is 100 commits per page
+    if commits_per_interval <= 200: # Github API limit is 100 commits per page, number is double to account for sparse commits since it is an average
         return get_snapshot_commits_retrieve_all_commits(full_name=full_name, commit_interval=commit_interval)
     else:
         return get_snapshot_commits_query_timedelta(full_name=full_name, created_at=created_at, updated_at=updated_at,commit_interval=commit_interval)

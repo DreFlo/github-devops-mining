@@ -161,7 +161,7 @@ def set_interrupted_flag(_signal, _frame) -> None:
 
 def check_database() -> None:
     wrapper = MongoDBWrapper()
-
+    error = False
     with open('repository_check_file', 'r') as check_file:
         for line in check_file:
             check = json.loads(line)
@@ -169,7 +169,12 @@ def check_database() -> None:
             tree_count = check['trees']
             database_tree_count = wrapper.count_repo_trees(repo_full_name)
             if tree_count != database_tree_count:
+                error = True
                 print(f'{repo_full_name} has {tree_count} trees in the check file and {database_tree_count} trees in the database')
+    if not error:
+        print(Fore.LIGHTCYAN_EX + 'MAIN THREAD:\t' + Fore.GREEN + 'Database check completed successfully' + Style.RESET_ALL)
+    else:
+        print(Fore.LIGHTCYAN_EX + 'MAIN THREAD:\t' + Fore.RED + 'Database check failed' + Style.RESET_ALL)
 
 def main():    
     wrapper = MongoDBWrapper()
