@@ -183,6 +183,7 @@ def get_snapshot_commits_query_timedelta(full_name : str, created_at : datetime,
     result = []
 
     # Get first commit
+    # TODO check timedelta, if not found increase timedelta?
     commits = get_repo_commits(full_name=full_name, until=(created_at + timedelta(days=30)).isoformat())
 
     if len(commits) == 0:
