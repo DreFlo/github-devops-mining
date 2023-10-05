@@ -185,12 +185,21 @@ def get_snapshot_commits_query_timedelta(full_name : str, created_at : datetime,
     result = []
 
     # Get first commit
-    # TODO check timedelta, if not found increase timedelta?
-    commits = get_repo_commits(full_name=full_name, until=(created_at + timedelta(days=30)).isoformat())
+    commits = []
+    day_window = timedelta(days=15)
+    
+    while len(commits) == 0:
+        commits = get_repo_commits(full_name=full_name, until=(created_at + day_window).isoformat())
 
-    if len(commits) == 0:
-        print(f'Could not retrive first commit for {full_name}')
-        return []
+        if len(commits) == 0:
+            print(f'Could not retrive first commit for {full_name} trying again with increased day window')
+            day_window_days = day_window.days
+            day_window = timedelta(days=day_window_days*2)
+
+        if day_window.days > 120:
+            print(f'Could not retrieve first commit for {full_name} after 60 days, skipping')
+            return result
+
     
     commits.sort(key=get_commit_timestamp)
 

@@ -1,3 +1,4 @@
 .env
 __pycache__/
 repository_check_file
+*.json

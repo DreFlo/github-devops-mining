@@ -10,8 +10,10 @@ from colorama import Fore, Style
 # Command line arguments
 parser = argparse.ArgumentParser(description='Load trees from GitHub repositories into MongoDB')
 
+parser.add_argument('filter_file_path', nargs='?', type=str, default='', help='Path for JSON file with filter for the repositories to load trees from, if not specified all repositories will be used')
 parser.add_argument('--delete-trees', action='store_true', help='Delete all trees from the trees collection')
-parser.add_argument('--check-database', action='store_true', help='Check the database for inconsistencies')
+parser.add_argument('--check-database', action='store_true', help='Check the database for inconsistencies with check file')
+parser.add_argument('--delete-check-file', action='store_true', help='Delete the repository check file')
 
 interrupt_number = 0
 interrupted = threading.Event()
@@ -64,8 +66,8 @@ def load_trees_into_database() -> None:
         tree_lock.acquire()
 
         # Get the trees to load
-        trees_to_load = trees[:1000]
-        trees = trees[1000:]
+        trees_to_load = trees[:5000]
+        trees = trees[5000:]
 
         tree_lock.release()
 
@@ -131,8 +133,6 @@ def get_repository_trees(repositories : Cursor) -> None:
             print(Fore.MAGENTA + 'GETTER THREAD:\t' + Style.RESET_ALL + f'No trees found for {repo_full_name}')
             continue
 
-        print(Fore.MAGENTA + 'GETTER THREAD:\t' + Style.RESET_ALL + f'Adding {len(repo_snapshot_trees)} trees from {repo_full_name} to loading queue')
-
         repo_snapshot_subtrees = []
 
         for tree in repo_snapshot_trees:
@@ -141,6 +141,8 @@ def get_repository_trees(repositories : Cursor) -> None:
         with open('repository_check_file', 'a') as check_file:
             check_file.write(f'{{ "repo_full_name" : "{repo_full_name}", "trees" : {len(repo_snapshot_subtrees)} }}\n')
 
+        print(Fore.MAGENTA + 'GETTER THREAD:\t' + Style.RESET_ALL + f'Adding {len(repo_snapshot_trees)} trees ({len(repo_snapshot_subtrees)} subtrees) from {repo_full_name} to loading queue')
+
         tree_lock.acquire()
 
         trees.extend(repo_snapshot_subtrees)
@@ -148,6 +150,7 @@ def get_repository_trees(repositories : Cursor) -> None:
         tree_lock.release()
 
     all_trees_retrieved.set()
+    print(Fore.MAGENTA + 'GETTER THREAD:\t' + Fore.GREEN + 'All repositories retrieved, exiting safely' + Style.RESET_ALL)
 
 def set_interrupted_flag(_signal, _frame) -> None:
     global interrupted, interrupt_number
@@ -190,10 +193,20 @@ def main():
         print(Fore.LIGHTCYAN_EX + 'MAIN THREAD:\t' + Fore.YELLOW + 'Checking database' + Style.RESET_ALL)
         check_database()
         return
+    
+    if parser.parse_args().delete_check_file:
+        print(Fore.LIGHTCYAN_EX + 'MAIN THREAD:\t' + Fore.RED + 'Deleting repository check file' + Style.RESET_ALL)
+        os.remove('repository_check_file')
 
     signal.signal(signal.SIGINT, set_interrupted_flag)
 
-    cursor = wrapper.get_repositories(filter={}, projection={"full_name": 1, "created_at": 1, "updated_at": 1, "_id": 0})
+    filter = {}
+
+    if parser.parse_args().filter_file_path != '':
+        with open(parser.parse_args().filter_file_path, 'r') as filter_file:
+            filter = json.load(filter_file)
+
+    cursor = wrapper.get_repositories(filter=filter, projection={"full_name": 1, "created_at": 1, "updated_at": 1, "_id": 0})
 
     getter_thread = threading.Thread(target=get_repository_trees, kwargs={'repositories': cursor})
     loader_thread = threading.Thread(target=load_trees_into_database)
