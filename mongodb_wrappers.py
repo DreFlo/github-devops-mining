@@ -25,7 +25,31 @@ class MongoDBWrapper:
         return self.db["random"].find(filter, projection)
     
     def add_tree(self, tree : dict):
-        self.db["trees"].insert_one(tree)
+        subtrees = self.split_tree_into_subtrees(tree)
+        self.db["trees"].insert_many(subtrees)
 
     def add_trees(self, trees : list):
-        self.db["trees"].insert_many(trees)
+        subtrees = []
+        for tree in trees:
+            subtrees.extend(self.split_tree_into_subtrees(tree))
+        self.db["trees"].insert_many(subtrees)
+
+    def split_tree_into_subtrees(self, tree : dict) -> list:
+        # Initialize subtrees with the root tree
+        subtrees = {'' : {'date' : tree['date'], 'repo_full_name' : tree['repo_full_name'], 'tree' : [], 'sha' : tree['sha'], 'path' : ''}}
+
+        # Add subtrees to the subtrees dictionary
+        for subtree in tree['tree']:
+            if subtree['type'] == 'tree':
+                subtrees[subtree['path']] = {'date' : tree['date'], 'repo_full_name' : tree['repo_full_name'], 'tree' : [], 'sha' : subtree['sha'], 'path' : subtree['path']}
+
+        # Add nodes to the subtrees
+        for node in tree['tree']:
+            subtree_path = '/'.join(node['path'].split('/')[:-1])
+
+            if subtree_path in subtrees:
+                subtrees[subtree_path]['tree'].append(node)
+
+        # Convert the subtrees dictionary to a list and return it
+        return list(subtrees.values())
+    
