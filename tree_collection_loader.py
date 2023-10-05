@@ -13,51 +13,74 @@ parser = argparse.ArgumentParser(description='Load trees from GitHub repositorie
 parser.add_argument('--delete-trees', action='store_true', help='Delete all trees from the trees collection')
 
 
-
-wrapper = MongoDBWrapper()
-
 interrupted = threading.Event()
+
+all_trees_retrieved = threading.Event()
 
 tree_lock = threading.Lock()
 
 trees = []
 
 def load_trees_into_database() -> None:
+    global interrupted, all_trees_retrieved, trees, tree_lock
+    wrapper = MongoDBWrapper()
     while True:
+        tree_lock.acquire()
+
+        length = len(trees)
+
+        tree_lock.release()
+
+        if all_trees_retrieved.is_set() and length == 0:
+            print(Fore.BLUE + 'LOADER THREAD:\t' + Fore.GREEN + 'All trees stored, exiting safely' + Style.RESET_ALL)
+            return
+        
         # Wait until there are trees to load
-        if len(trees) == 0:
-            time.sleep(5)
+        if length == 0:
+            print(Fore.BLUE + 'LOADER THREAD:\t' + Fore.YELLOW + 'No trees to load, waiting 20 seconds' + Style.RESET_ALL)
+            time.sleep(20)
             continue
 
         tree_lock.acquire()
 
         # Get the trees to load
-        trees_to_load = trees[:1000]
-        trees = trees[1000:]
+        trees_to_load = trees[:50]
+        trees = trees[50:]
 
         tree_lock.release()
 
+        print(Fore.BLUE + 'LOADER THREAD:\t' + Style.RESET_ALL + f'Adding {len(trees_to_load)} trees to database')
+
+        tries = 0
+        
+        start = time.time()
+
         # Insert the trees into the database
-        wrapper.add_trees(trees_to_load)
+        while not (tries != 0 and interrupted.is_set()):
+            try:                
+                wrapper.add_trees(trees_to_load)
+                break
+            except Exception as e:
+                print(e.details)
+                print(Fore.BLUE + 'LOADER THREAD:\t' + Fore.RED + 'Retrying to add trees' + Style.RESET_ALL)
+                tries += 1
+                continue        
 
+        end = time.time()
 
+        print(Fore.BLUE + 'LOADER THREAD:\t' + Style.RESET_ALL + f'Time taken to add {len(trees_to_load)} trees to database: {end - start}')
 
-def get_repository_trees(filter : dict = {}) -> None:
-    global interrupted
-    repositories = wrapper.get_repositories(filter=filter, projection={"full_name": 1, "created_at": 1, "updated_at": 1, "_id": 0})
-
-    # Count the number of repositories
-    count = wrapper.db.random.count_documents(filter=filter)
-    print(f'Number of repositories: {count}')
+def get_repository_trees(repositories : Cursor) -> None:
+    global interrupted, all_trees_retrieved, trees, tree_lock
 
     for repository in repositories:
         if interrupted.is_set():
-            print(Fore.GREEN + 'Interrupted, exiting safely' + Style.RESET_ALL)
-            return
+            print(Fore.MAGENTA + 'GETTER THREAD:\t' + Fore.GREEN + 'Interrupted, exiting safely' + Style.RESET_ALL)
+            break
         
         repo_full_name = repository['full_name']
 
-        print(f'Processing repository: {repo_full_name}')
+        print(Fore.MAGENTA + 'GETTER THREAD:\t' + Style.RESET_ALL + f'Processing repository: {repo_full_name}')
 
         start = time.time()
 
@@ -72,7 +95,7 @@ def get_repository_trees(filter : dict = {}) -> None:
 
         end = time.time()
 
-        print(f'Time taken to retrieve {len(repo_snapshot_commits)} snapshot commits: {end - start}')
+        print(Fore.MAGENTA + 'GETTER THREAD:\t' + Style.RESET_ALL + f'Time taken to retrieve {len(repo_snapshot_commits)} snapshot commits: {end - start}')
 
         start = time.time()
 
@@ -80,7 +103,7 @@ def get_repository_trees(filter : dict = {}) -> None:
 
         end = time.time()
 
-        print(f'Time taken to retrieve {len(repo_snapshot_trees)} snapshot trees: {end - start}')
+        print(Fore.MAGENTA + 'GETTER THREAD:\t' + Style.RESET_ALL + f'Time taken to retrieve {len(repo_snapshot_trees)} snapshot trees: {end - start}')
 
         for i in range(len(repo_snapshot_commits)):
             repo_snapshot_trees[i]['date'] = dateutil.parser.isoparse(repo_snapshot_commits[i]['commit']['author']['date'])
@@ -88,45 +111,43 @@ def get_repository_trees(filter : dict = {}) -> None:
             del repo_snapshot_trees[i]['url']
 
         if len(repo_snapshot_trees) == 0:
-            print(f'No trees found for {repo_full_name}')
+            print(Fore.MAGENTA + 'GETTER THREAD:\t' + Style.RESET_ALL + f'No trees found for {repo_full_name}')
             continue
 
-        print(f'Adding {len(repo_snapshot_trees)} trees from {repo_full_name} to database')
+        print(Fore.MAGENTA + 'GETTER THREAD:\t' + Style.RESET_ALL + f'Adding {len(repo_snapshot_trees)} trees from {repo_full_name} to loading queue')
 
-        start = time.time()
+        tree_lock.acquire()
 
-        tries = 0
+        trees.extend(repo_snapshot_trees)
 
-        while not (tries != 0 and interrupted.is_set()):
-            try:                
-                wrapper.add_trees(repo_snapshot_trees)
-                break
-            except Exception as e:
-                print(e.details)
-                print(Fore.RED + 'Retrying' + Style.RESET_ALL)
-                tries += 1
-                continue
+        tree_lock.release()
 
-        end = time.time()
-
-        print(f'Time taken to add {len(repo_snapshot_trees)} trees to database: {end - start}')
+    all_trees_retrieved.set()
 
 def set_interrupted_flag(_signal, _frame) -> None:
     global interrupted
-    print(Fore.RED + 'Interrupted, stopping after current repository or at error' + Style.RESET_ALL)
+    print(Fore.LIGHTCYAN_EX + 'MAIN THREAD:\t' + Fore.RED + 'Interrupted, stopping after current repository or at error' + Style.RESET_ALL)
     interrupted.set()
 
-def main():
+def main():    
+    wrapper = MongoDBWrapper()
+
     if parser.parse_args().delete_trees:
-        print(Fore.RED + 'Deleting all trees from the trees collection' + Style.RESET_ALL)
+        print(Fore.LIGHTCYAN_EX + 'MAIN THREAD:\t' + Fore.RED + 'Deleting all trees from the trees collection' + Style.RESET_ALL)
         wrapper.db.trees.delete_many({})
-        return
 
     signal.signal(signal.SIGINT, set_interrupted_flag)
 
-    loader_thread = threading.Thread(target=get_repository_trees, kwargs={'filter': {}})
+    cursor = wrapper.get_repositories(filter={}, projection={"full_name": 1, "created_at": 1, "updated_at": 1, "_id": 0})
 
+    getter_thread = threading.Thread(target=get_repository_trees, kwargs={'repositories': cursor})
+    loader_thread = threading.Thread(target=load_trees_into_database)
+
+    getter_thread.start()
     loader_thread.start()
+
+    while getter_thread.is_alive():
+        getter_thread.join(5)
 
     while loader_thread.is_alive():
         loader_thread.join(5)
