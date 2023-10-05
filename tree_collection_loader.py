@@ -11,8 +11,8 @@ from colorama import Fore, Style
 parser = argparse.ArgumentParser(description='Load trees from GitHub repositories into MongoDB')
 
 parser.add_argument('filter_file_path', nargs='?', type=str, default='', help='Path for JSON file with filter for the repositories to load trees from, if not specified all repositories will be used')
-parser.add_argument('--delete-trees', action='store_true', help='Delete all trees from the trees collection')
-parser.add_argument('--check-database', action='store_true', help='Check the database for inconsistencies with check file')
+parser.add_argument('--delete-trees', action='store_true', help='Delete all trees from the trees collection and exit')
+parser.add_argument('--check-database', action='store_true', help='Check the database for inconsistencies with check file and exit')
 parser.add_argument('--delete-check-file', action='store_true', help='Delete the repository check file')
 
 interrupt_number = 0

@@ -1,5 +1,7 @@
 # Running
 
+Needs ```.env``` file to work. See ```.env.example``` for variables. 
+
 ```bash
 usage: tree_collection_loader.py [-h] [--delete-trees] [--check-database] [--delete-check-file] [filter_file_path]
 
@@ -10,7 +12,7 @@ positional arguments:
 
 options:
   -h, --help           show this help message and exit
-  --delete-trees       Delete all trees from the trees collection
-  --check-database     Check the database for inconsistencies with checkfile
+  --delete-trees       Delete all trees from the trees collection and exit
+  --check-database     Check the database for inconsistencies with checkfile and exit
   --delete-check-file  Delete the repository check file
 ```
