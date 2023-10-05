@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 
 from requests.structures import CaseInsensitiveDict
 from urllib.parse import parse_qs, urlparse
+from colorama import Fore, Style
 
 
 # Load Github Token
@@ -27,9 +28,10 @@ def send_get_request_wait_for_rate_limit(**kwargs) -> requests.Response:
 
     if RATE_LIMIT_RESET_TIME:
         if datetime.now() < RATE_LIMIT_RESET_TIME:
-            print(f'Rate limit reached, waiting until reset at {RATE_LIMIT_RESET_TIME}')
+            print( Fore.YELLOW + f'Rate limit reached, waiting until reset at {RATE_LIMIT_RESET_TIME}' + Style.RESET_ALL)
             time.sleep((RATE_LIMIT_RESET_TIME - datetime.now()).total_seconds())
             RATE_LIMIT_RESET_TIME = None
+            print(Fore.GREEN + 'Rate limit reset, continuing' + Style.RESET_ALL)
     
     response = requests.get(**kwargs)
     
@@ -198,6 +200,7 @@ def get_snapshot_commits_query_timedelta(full_name : str, created_at : datetime,
     day_window = timedelta(days=7)
 
     while get_commit_timestamp(result[-1]) + commit_interval < updated_at:
+        print(f'Getting commits for {full_name}, day window: {day_window}')
         since = (get_commit_timestamp(result[-1]) + commit_interval - day_window).isoformat()
         until = (get_commit_timestamp(result[-1]) + commit_interval + day_window).isoformat()
 
@@ -206,14 +209,21 @@ def get_snapshot_commits_query_timedelta(full_name : str, created_at : datetime,
         # If no commits are retrieved, increase the day window and try again
         if len(commits) == 0:
             print(f'Could not retrive commits for {full_name} from {since} to {until}, increasing day window')
-            day_window *= 2
+            day_window_days = day_window.days
+            day_window = timedelta(days=day_window_days*2)
             continue
-
-        day_window = timedelta(days=3)
 
         commits.sort(key=get_commit_timestamp)
 
-        result.append(commits[-1])
+        if result[-1]['sha'] == commits[-1]['sha']:
+            print(f'No new commits found for {full_name} from {since} to {until}')
+            day_window_days = day_window.days
+            day_window = timedelta(days=day_window_days*2)
+            continue
+
+        result.append(commits[-1])        
+
+        day_window = timedelta(days=3)
 
     # Get last commit
     commits = get_repo_commits(full_name=full_name, per_page=1, max_pages=1)
