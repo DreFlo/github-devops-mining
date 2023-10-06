@@ -1,6 +1,7 @@
 import threading
 import signal
 import argparse
+import bson
 
 from github_api_wrappers import *
 from mongodb_wrappers import *
@@ -40,8 +41,44 @@ def split_tree_into_subtrees(tree : dict) -> list:
             if subtree_path in subtrees:
                 subtrees[subtree_path]['tree'].append(node)
 
-        # Convert the subtrees dictionary to a list and return it
-        return list(subtrees.values())
+
+        # Split subtrees that are too big
+        size_limited_subtrees = []
+
+        for subtree in subtrees.values():
+            encoded_size = sys.getsizeof(bson.BSON.encode(subtree))
+            if encoded_size >= 16793600:
+                print(Fore.BLUE + 'LOADER THREAD:\t' + Fore.YELLOW + f'Splitting subtree with {len(subtree["tree"])} nodes' + Style.RESET_ALL)
+                parts = int(encoded_size / 16793600) + 1
+                parted_subtrees = []
+                while True:
+                    # Attempt to split the subtree into parts
+                    for i in range(parts):
+                        parted_subtree = {key : value for key, value in subtree.items() if key != 'tree'}
+                        parted_subtree['tree'] = subtree['tree'][i * len(subtree['tree']) // parts : (i + 1) * len(subtree['tree']) // parts]
+                        parted_subtree['part'] = i
+                        parted_subtrees.append(parted_subtree)
+
+                    too_large = False
+
+                    # Check if the parts are small enough
+                    for parted_subtree in parted_subtrees:
+                        # If the parts are not small enough, try again with more parts
+                        if sys.getsizeof(bson.BSON.encode(parted_subtree)) >= 16793600:
+                            too_large = True
+                            break
+
+                    if too_large:
+                        parts += 1
+                        parted_subtrees = []
+                        continue
+                    break
+                size_limited_subtrees.extend(parted_subtrees)
+                print(Fore.BLUE + 'LOADER THREAD:\t' + Fore.YELLOW + f'Split subtree into {parts} parts ({sum([len(parted_subtree["tree"] for parted_subtree in parted_subtrees)])} nodes)' + Style.RESET_ALL)
+            else:
+                size_limited_subtrees.append(subtree)
+
+        return size_limited_subtrees
 
 def load_trees_into_database() -> None:
     global interrupted, all_trees_retrieved, trees, tree_lock
@@ -59,8 +96,8 @@ def load_trees_into_database() -> None:
         
         # Wait until there are trees to load
         if length == 0:
-            print(Fore.BLUE + 'LOADER THREAD:\t' + Fore.YELLOW + 'No trees to load, waiting 20 seconds' + Style.RESET_ALL)
-            time.sleep(20)
+            # print(Fore.BLUE + 'LOADER THREAD:\t' + Fore.YELLOW + 'No trees to load, waiting 10 seconds' + Style.RESET_ALL)
+            time.sleep(10)
             continue
 
         tree_lock.acquire()
@@ -196,7 +233,8 @@ def main():
     
     if parser.parse_args().delete_check_file:
         print(Fore.LIGHTCYAN_EX + 'MAIN THREAD:\t' + Fore.RED + 'Deleting repository check file' + Style.RESET_ALL)
-        os.remove('repository_check_file')
+        if os.path.exists('repository_check_file'):
+            os.remove('repository_check_file')
 
     signal.signal(signal.SIGINT, set_interrupted_flag)
 
@@ -205,6 +243,14 @@ def main():
     if parser.parse_args().filter_file_path != '':
         with open(parser.parse_args().filter_file_path, 'r') as filter_file:
             filter = json.load(filter_file)
+
+    # Print filter
+    print(Fore.LIGHTCYAN_EX + 'MAIN THREAD:\t' + Fore.YELLOW + 'Filter:' + Style.RESET_ALL)
+    print(json.dumps(filter, indent=2))
+
+    # Count repositories
+    document_count = wrapper.db["random"].count_documents(filter)
+    print(Fore.LIGHTCYAN_EX + 'MAIN THREAD:\t' + Fore.WHITE + f'{document_count} documents found' + Style.RESET_ALL)
 
     cursor = wrapper.get_repositories(filter=filter, projection={"full_name": 1, "created_at": 1, "updated_at": 1, "_id": 0})
 
