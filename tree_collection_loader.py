@@ -15,6 +15,7 @@ parser.add_argument('filter_file_path', nargs='?', type=str, default='', help='P
 parser.add_argument('--delete-trees', action='store_true', help='Delete all trees from the trees collection and exit')
 parser.add_argument('--check-database', action='store_true', help='Check the database for inconsistencies with check file and exit')
 parser.add_argument('--delete-check-file', action='store_true', help='Delete the repository check file')
+parser.add_argument('--test-github-api-limits', action='store_true', help='Test the GitHub API limits and exit')
 
 interrupt_number = 0
 interrupted = threading.Event()
@@ -24,6 +25,15 @@ all_trees_retrieved = threading.Event()
 tree_lock = threading.Lock()
 
 trees = []
+
+parsed_repositories = set()
+
+def initialize_parsed_repositories():
+    if os.path.exists('repository_check_file'):
+        with open('repository_check_file', 'r') as check_file:
+            for line in check_file:
+                check = json.loads(line)
+                parsed_repositories.add(check['repo_full_name'])
 
 def split_tree_into_subtrees(tree : dict) -> list:
         # Initialize subtrees with the root tree
@@ -83,6 +93,7 @@ def split_tree_into_subtrees(tree : dict) -> list:
 def load_trees_into_database() -> None:
     global interrupted, all_trees_retrieved, trees, tree_lock
     wrapper = MongoDBWrapper()
+    print(Fore.BLUE + 'LOADER THREAD:\t' + Fore.YELLOW + 'Loader thread started' + Style.RESET_ALL)
     while True:
         tree_lock.acquire()
 
@@ -108,7 +119,7 @@ def load_trees_into_database() -> None:
 
         tree_lock.release()
 
-        print(Fore.BLUE + 'LOADER THREAD:\t' + Style.RESET_ALL + f'Adding {len(trees_to_load)} trees to database')
+        #print(Fore.BLUE + 'LOADER THREAD:\t' + Style.RESET_ALL + f'Adding {len(trees_to_load)} trees to database')
         
         start = time.time()
 
@@ -124,7 +135,7 @@ def load_trees_into_database() -> None:
 
         end = time.time()
 
-        print(Fore.BLUE + 'LOADER THREAD:\t' + Style.RESET_ALL + f'Time taken to add {len(trees_to_load)} trees to database: {end - start}')
+        #print(Fore.BLUE + 'LOADER THREAD:\t' + Style.RESET_ALL + f'Time taken to add {len(trees_to_load)} trees to database: {end - start}')
 
 def get_repository_trees(repositories : Cursor) -> None:
     global interrupted, all_trees_retrieved, trees, tree_lock
@@ -133,6 +144,10 @@ def get_repository_trees(repositories : Cursor) -> None:
         if interrupted.is_set():
             print(Fore.MAGENTA + 'GETTER THREAD:\t' + Fore.GREEN + 'Interrupted, exiting safely' + Style.RESET_ALL)
             break
+
+        if repository['full_name'] in parsed_repositories:
+            print(Fore.MAGENTA + 'GETTER THREAD:\t' + Fore.YELLOW + f'Skipping repository {repository["full_name"]}, already parsed' + Style.RESET_ALL)
+            continue
         
         repo_full_name = repository['full_name']
 
@@ -175,6 +190,8 @@ def get_repository_trees(repositories : Cursor) -> None:
         for tree in repo_snapshot_trees:
             repo_snapshot_subtrees.extend(split_tree_into_subtrees(tree))
 
+        parsed_repositories.add(repo_full_name)
+
         with open('repository_check_file', 'a') as check_file:
             check_file.write(f'{{ "repo_full_name" : "{repo_full_name}", "trees" : {len(repo_snapshot_subtrees)} }}\n')
 
@@ -216,6 +233,18 @@ def check_database() -> None:
     else:
         print(Fore.LIGHTCYAN_EX + 'MAIN THREAD:\t' + Fore.RED + 'Database check failed' + Style.RESET_ALL)
 
+def test_github_api_limits(repositories : Cursor) -> None:
+    repositories_list = list(repositories)
+    its = 0
+    while True:
+        for repository in repositories_list:
+            get_repo(repository['full_name'])
+            its += 1
+            if its % 100 == 0:
+                print(f'Performed {its} requests')
+
+
+
 def main():    
     wrapper = MongoDBWrapper()
 
@@ -231,10 +260,18 @@ def main():
         check_database()
         return
     
+    if parser.parse_args().test_github_api_limits:
+        print(Fore.LIGHTCYAN_EX + 'MAIN THREAD:\t' + Fore.YELLOW + 'Testing GitHub API limits' + Style.RESET_ALL)
+        filter = {}
+        test_github_api_limits(wrapper.get_repositories(filter=filter, projection={"full_name": 1, "created_at": 1, "updated_at": 1, "_id": 0}))
+        return
+    
     if parser.parse_args().delete_check_file:
         print(Fore.LIGHTCYAN_EX + 'MAIN THREAD:\t' + Fore.RED + 'Deleting repository check file' + Style.RESET_ALL)
         if os.path.exists('repository_check_file'):
             os.remove('repository_check_file')
+
+    initialize_parsed_repositories()
 
     signal.signal(signal.SIGINT, set_interrupted_flag)
 
