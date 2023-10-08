@@ -268,8 +268,10 @@ def main():
     
     if parser.parse_args().delete_check_file:
         print(Fore.LIGHTCYAN_EX + 'MAIN THREAD:\t' + Fore.RED + 'Deleting repository check file' + Style.RESET_ALL)
-        if os.path.exists('repository_check_file'):
-            os.remove('repository_check_file')
+        print("To delete the check file, type 'DELETE' and press enter")
+        if input() == 'DELETE':
+            if os.path.exists('repository_check_file'):
+                os.remove('repository_check_file')
 
     initialize_parsed_repositories()
 
