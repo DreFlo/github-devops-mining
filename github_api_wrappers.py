@@ -292,8 +292,11 @@ def get_commits_count(repo_full_name : str) -> int:
     """
     Returns the number of commits to a GitHub repository.
     """
+    headers = CaseInsensitiveDict()
+    headers['Accept'] = 'application/vnd.github+json'
+    headers['Authorization'] = f'Bearer {TOKEN}'
     url = f"https://api.github.com/repos/{repo_full_name}/commits?per_page=1"
-    r = requests.get(url)
+    r = send_get_request_wait_for_rate_limit(headers=headers, url=url)
     links = r.links
     rel_last_link_url = urlparse(links["last"]["url"])
     rel_last_link_url_args = parse_qs(rel_last_link_url.query)
