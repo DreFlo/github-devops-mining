@@ -231,9 +231,7 @@ def set_interrupted_flag(_signal, _frame) -> None:
         interrupted.set()
     elif interrupt_number == 2:
         print(Fore.LIGHTCYAN_EX + 'MAIN THREAD:\t' + Fore.RED + f'Interrupted again time: {datetime.now()}), stopping immediately' + Style.RESET_ALL)
-        print(f'REQUESTS: {REQUEST_COUNT}')
-        print(f'ERRORS: {CONNECTION_ERROR_COUNT}')
-        os._exit(0)
+        sys.exit(0)
 
 def check_database() -> None:
     wrapper = MongoDBWrapper()
@@ -288,7 +286,9 @@ def main():
         interrupt_at = datetime.strptime(parser.parse_args().interrupt_at, '%Y-%m-%dT%H:%M')
         alarm_time = (interrupt_at - datetime.now()).total_seconds()
         print(Fore.LIGHTCYAN_EX + 'MAIN THREAD:\t' + Fore.YELLOW + f'Interrupting at {interrupt_at}' + Style.RESET_ALL)
-        threading.Timer(alarm_time, raise_sigint).start()
+        timer = threading.Timer(alarm_time, raise_sigint)
+        timer.daemon = True
+        timer.start()
         
 
     if parser.parse_args().delete_tools:
@@ -354,10 +354,7 @@ def main():
     while loader_thread.is_alive():
         loader_thread.join(5)
 
-    print(f'REQUESTS: {REQUEST_COUNT}')
-    print(f'ERRORS: {CONNECTION_ERROR_COUNT}')
-
-    os._exit(0)
+    sys.exit(0)
 
 if __name__ == '__main__':
     main()

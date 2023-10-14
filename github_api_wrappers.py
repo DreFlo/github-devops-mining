@@ -28,7 +28,7 @@ def send_get_request_wait_for_rate_limit(**kwargs) -> requests.Response:
     global REQUEST_COUNT, RATE_LIMIT_RESET_TIME, CONNECTION_ERROR_COUNT
     REQUEST_COUNT += 1
 
-    print(f'[{REQUEST_COUNT}] {kwargs}')
+    # print(f'[{REQUEST_COUNT}] {kwargs}')
 
     if RATE_LIMIT_RESET_TIME:
         if datetime.now() < RATE_LIMIT_RESET_TIME:
