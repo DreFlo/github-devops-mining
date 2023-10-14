@@ -21,17 +21,24 @@ class MongoDBWrapper:
     def get_all_collections(self) -> list:
         return self.db.list_collection_names()
     
-    def get_repositories(self, filter : dict = {}, projection : dict = None) -> Cursor:
+    def get_repositories(self, filter : dict = {}, projection : dict = None, no_cursor_timeout : bool = False) -> Cursor:
         return self.db["random"].find(filter, projection)
-
-    def add_trees(self, trees : list):
-        # Insert 1000 subtrees at a time
-        for i in range(0, len(trees), 5000):
-            self.db["trees"].insert_many(trees[i:i+5000])
-
-    def count_repo_trees(self, repo_full_name : str) -> int:
-        return self.db["trees"].count_documents({"repo_full_name" : repo_full_name})
     
-    def delete_all_trees(self):
-        self.db["trees"].delete_many({})
+    def add_repo_tools(self, repo_tools : dict):
+        self.db["repo_tools_history"].insert_one(repo_tools)
+
+    def count_repo_histories(self):
+        return self.db["repo_tools_history"].count_documents({})
+    
+    def count_repo_snapshots(self, repo_name : str):
+        repo_history = self.db['repo_tools_history'].find_one({"repo_full_name": repo_name})
+        if repo_history is None:
+            return 0
+        return len(repo_history['snapshots'])
+    
+    def has_been_processed(self, repo_name : str):
+        return self.db['repo_tools_history'].find_one({"repo_full_name": repo_name}) is not None
+    
+    def delete_repo_histories(self):
+        self.db["repo_tools_history"].delete_many({})
     

@@ -5,6 +5,7 @@ import dateutil.parser
 import requests
 import json
 import os
+import base64
 
 from dotenv import load_dotenv
 
@@ -19,12 +20,15 @@ load_dotenv()
 TOKEN = os.getenv('GITHUB_TOKEN')
 
 REQUEST_COUNT = 0
+CONNECTION_ERROR_COUNT = 0
 
 RATE_LIMIT_RESET_TIME = None
 
 def send_get_request_wait_for_rate_limit(**kwargs) -> requests.Response:
-    global REQUEST_COUNT, RATE_LIMIT_RESET_TIME
+    global REQUEST_COUNT, RATE_LIMIT_RESET_TIME, CONNECTION_ERROR_COUNT
     REQUEST_COUNT += 1
+
+    print(f'[{REQUEST_COUNT}] {kwargs}')
 
     if RATE_LIMIT_RESET_TIME:
         if datetime.now() < RATE_LIMIT_RESET_TIME:
@@ -32,8 +36,19 @@ def send_get_request_wait_for_rate_limit(**kwargs) -> requests.Response:
             time.sleep((RATE_LIMIT_RESET_TIME - datetime.now()).total_seconds())
             RATE_LIMIT_RESET_TIME = None
             print(Fore.GREEN + 'Rate limit reset, continuing' + Style.RESET_ALL)
+
+    kwargs['timeout'] = None
     
-    response = requests.get(**kwargs)
+    while True:
+        try:
+            response = requests.get(**kwargs)
+            break
+        except requests.exceptions.ConnectionError:
+            print(Fore.RED + 'Connection error, waiting 2 seconds' + Style.RESET_ALL)
+            REQUEST_COUNT += 1
+            CONNECTION_ERROR_COUNT += 1
+            time.sleep(2)
+            continue
     
     if response.headers['X-RateLimit-Remaining'] == '0':
         RATE_LIMIT_RESET_TIME = datetime.fromtimestamp(float(response.headers['X-RateLimit-Reset']))
@@ -181,62 +196,61 @@ def get_snapshot_commits_retrieve_all_commits(full_name : str, commit_interval :
     commits = get_repo_commits(full_name=full_name)
     return get_repo_snapshots(commits=commits, commit_interval=commit_interval)
 
-def get_snapshot_commits_query_timedelta(full_name : str, created_at : datetime, updated_at : datetime, commit_interval : timedelta = timedelta(days=90)) -> list:
-    result = []
-
+def get_snapshot_commits_query_timedelta(full_name : str, created_at : datetime, updated_at : datetime, commit_count : int, commit_interval : timedelta = timedelta(days=90)) -> list:
     # Get first commit
+    result = [get_first_commit(full_name)]
+
     commits = []
-    day_window = timedelta(days=15)
-    
-    while len(commits) == 0:
-        commits = get_repo_commits(full_name=full_name, until=(created_at + day_window).isoformat())
-
-        if len(commits) == 0:
-            print(f'Could not retrive first commit for {full_name} trying again with increased day window')
-            day_window_days = day_window.days
-            day_window = timedelta(days=day_window_days*2)
-
-        if day_window.days > 120:
-            print(f'Could not retrieve first commit for {full_name} after 60 days, skipping')
-            return result
-
-    
-    commits.sort(key=get_commit_timestamp)
-
-    result.append(commits[0])
 
     # Get commits in intervals
     day_window = timedelta(days=7)
+    extended_search_tries = 0
+
+    prev_until = None
+    ignore_day_window = False
 
     while get_commit_timestamp(result[-1]) + commit_interval < updated_at:
-        since = (get_commit_timestamp(result[-1]) + commit_interval - day_window).isoformat()
-        until = (get_commit_timestamp(result[-1]) + commit_interval + day_window).isoformat()
+        if extended_search_tries > 100:
+            print(f'Extended search tries exceeded for {full_name}')
+            break
+        elif day_window > commit_interval:
+            ignore_day_window = True
+            extended_search_tries += 1
+            since = (prev_until if prev_until is not None else (get_commit_timestamp(result[-1]) + commit_interval)).isoformat()
+            until = (prev_until + commit_interval * 8 if prev_until is not None else (get_commit_timestamp(result[-1]) + commit_interval * 8)).isoformat()
+            prev_until = dateutil.parser.isoparse(until)         
+        else:
+            since = (get_commit_timestamp(result[-1]) + commit_interval - day_window).isoformat()
+            until = (get_commit_timestamp(result[-1]) + commit_interval + day_window).isoformat()
 
-        commits = get_repo_commits(full_name=full_name, since=since, until=until)
+        commits = get_repo_commits(full_name=full_name, since=since, until=until, max_pages=1)
 
         # If no commits are retrieved, increase the day window and try again
         if len(commits) == 0:
-            print(f'Could not retrive commits for {full_name} from {since} to {until}, increasing day window')
-            day_window_days = day_window.days
-            day_window = timedelta(days=day_window_days*2)
+            if not ignore_day_window:
+                day_window_days = day_window.days
+                day_window = timedelta(days=day_window_days*2)
             continue
 
         commits.sort(key=get_commit_timestamp)
 
         if result[-1]['sha'] == commits[-1]['sha']:
-            print(f'No new commits found for {full_name} from {since} to {until}')
-            day_window_days = day_window.days
-            day_window = timedelta(days=day_window_days*2)
+            if not ignore_day_window:
+                day_window_days = day_window.days
+                day_window = timedelta(days=day_window_days*2)
             continue
 
-        result.append(commits[-1])        
+        result.append(commits[-1])
 
+        extended_search_tries = 0
+        ignore_day_window = False
         day_window = timedelta(days=3)
 
     # Get last commit
     commits = get_repo_commits(full_name=full_name, per_page=1, max_pages=1)
 
-    result.append(commits[0])
+    if result[-1]['sha'] != commits[0]['sha']:
+        result.append(commits[0])
 
     return result
 
@@ -252,7 +266,7 @@ def get_snapshot_commits_optimized(full_name : str, commit_count : int, created_
     if commits_per_interval <= 200: # Github API limit is 100 commits per page, number is double to account for sparse commits since it is an average
         return get_snapshot_commits_retrieve_all_commits(full_name=full_name, commit_interval=commit_interval)
     else:
-        return get_snapshot_commits_query_timedelta(full_name=full_name, created_at=created_at, updated_at=updated_at,commit_interval=commit_interval)
+        return get_snapshot_commits_query_timedelta(full_name=full_name, created_at=created_at, updated_at=updated_at, commit_count=commit_count, commit_interval=commit_interval)
 
 
 def get_repo_contents(full_name : str, path : str = '', sha : str = None) -> list:
@@ -304,61 +318,23 @@ def get_commits_count(repo_full_name : str) -> int:
     commits_count = int(rel_last_link_url_page_arg)
     return commits_count
 
-# full_names = get_repository_full_names(per_page=1)
-
-# print('Retrieve all commits')
-
-# start = time.time()
-
-# commits_retrieve_all = get_snapshot_commits_retrieve_all_commits(full_name=full_names[0])
-
-# end = time.time()
-
-# print(f'Request Count: {REQUEST_COUNT}')
-
-# print(f'No. of commits retrieved: {len(commits_retrieve_all)}')
-
-# print(f'Time taken to retrieve all {len(commits_retrieve_all)} commits: {end - start}')
-
-# reset_request_count()
-
-# repo_contents = get_repo_contents(full_name=full_names[0], path='*.md', sha=commits_retrieve_all[-1]['sha'])
-
-# with open('response.json', 'w') as response_file:
-#     response_file.write(json.dumps(repo_contents, indent=2))
-
-# print('Wait 1 minute')
-
-# time.sleep(60)
-
-# print('Query timedelta')
-
-# start = time.time()
-
-# commits_query_timedelta = get_snapshot_commits_query_timedelta(full_name=full_names[0])
-
-# end = time.time()
-
-# print(f'Request Count: {REQUEST_COUNT}')
-
-# print(f'No. of commits retrieved: {len(commits_query_timedelta)}')
-
-# print(f'Time taken to retrieve all {len(commits_query_timedelta)} commits: {end - start}')
-
-# repo = get_repo(full_names[0])
-
-#commits = get_repository_commits(full_names[0])
-
-# print(f'No. of commits retrieved: {len(commits)}')
-# print(f'No. of commits selected: {len(repo_snapshots)}')
-
-#download_repo_snapshot(full_name=full_names[0], ref=repo_snapshots[-1]['sha'])
-#get_repo_tree(full_name=full_names[0], tree_sha=repo_snapshots[-1]['sha'])
-# get_commit_comparison(full_name=full_names[0], commit_1_sha=repo_snapshots[-2]['sha'], commit_2_sha=repo_snapshots[-1]['sha'])
+def get_first_commit(repo_full_name : str) -> json:
+    headers = CaseInsensitiveDict()
+    headers['Accept'] = 'application/vnd.github+json'
+    headers['Authorization'] = f'Bearer {TOKEN}'
+    url = f"https://api.github.com/repos/{repo_full_name}/commits?per_page=1"
+    r = send_get_request_wait_for_rate_limit(headers=headers, url=url)
+    links = r.links
+    rel_last_link_url = links["last"]["url"]
+    r = send_get_request_wait_for_rate_limit(headers=headers, url=rel_last_link_url)
+    return r.json()[0]
 
 
-# with open('response_retrieve_all.json', 'w') as response_file:
-#     response_file.write(json.dumps(commits_retrieve_all, indent=2))
+# Hugo
+def decoded_base_64(fileloc):
+    result = send_get_request_wait_for_rate_limit(url=fileloc, headers={'Authorization' : f'Bearer {TOKEN}'})
+    data = json.loads(result.content)
 
-# with open('response_query_timedelta.json', 'w') as response_file:
-#     response_file.write(json.dumps(commits_query_timedelta, indent=2))
+    decoded_content = base64.b64decode(data["content"])
+
+    return f"{decoded_content}"

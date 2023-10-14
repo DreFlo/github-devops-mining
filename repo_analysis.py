@@ -6,6 +6,8 @@ from github_api_wrappers import *
 from datetime import datetime, timedelta
 from enum import Enum
 
+from tree_collection_loader import *
+
 class DevOpsTechnologies(Enum):
     GITHUB_ACTIONS = 0
     JENKINS = 1
@@ -87,51 +89,67 @@ def get_devops_technologies(tree : list) -> list:
 
     return [technology.name for technology in technologies]
 
-api_limits = get_api_rate_limits()
+was_interrupted = False
 
-print(f'API rate limits: {api_limits}')
+def set_interrupted(_, __):
+    global was_interrupted
+    was_interrupted = True
+    print('Interrupted')
 
-repo_full_name = get_repository_full_names(per_page=1)[0]
+signal.signal(signal.SIGINT, set_interrupted)
 
-start = time.time()
+parsed_repos = set((repo['full_name'] for repo in json.loads(open('repo_infos.json', 'r').read())) if os.path.exists('repo_infos.json') else [])
+print(parsed_repos)
 
-repo_all_commits = get_repo_commits(repo_full_name)
+wrapper = MongoDBWrapper()
 
-end = time.time()
+repos = wrapper.get_repositories(filter={}, projection={"full_name": 1, "created_at": 1, "updated_at": 1, "_id": 0})
 
-print(f'Time taken to retrieve all {len(repo_all_commits)} commits: {end - start}')
+repo_infos = json.loads(open('repo_infos.json', 'r').read()) if os.path.exists('repo_infos.json') else []
 
-start = time.time()
+for repo in repos:
+    if was_interrupted:
+        break
 
-repo_snapshot_commits = get_repo_snapshots(repo_all_commits, timedelta(days=90))
+    repo_full_name = repo['full_name']
 
-end = time.time()
+    if repo_full_name in parsed_repos:
+        print(f'Skipping {repo_full_name}')
+        continue
 
-print(f'Time taken to retrieve snapshot commits: {end - start}')
+    print(f'Processing {repo_full_name}')
+    
+    commit_count = get_commits_count(repo_full_name)
 
-start = time.time()
+    repo_snapshot_commits = get_snapshot_commits_optimized(
+        repo_full_name, 
+        commit_count, 
+        dateutil.parser.parse(repo['created_at']), 
+        dateutil.parser.parse(repo['updated_at']), 
+        timedelta(days=90)) # TODO Check interval
+    
+    repo_snapshot_trees = get_repo_trees(full_name=repo_full_name, commits=repo_snapshot_commits)
 
-repo_snapshot_trees = get_repo_trees(full_name=repo_full_name, commits=repo_snapshot_commits)
+    repo_snapshot_devops_technologies = []
 
-end = time.time()
+    for tree in repo_snapshot_trees:
+        if 'tree' in tree:
+            repo_snapshot_devops_technologies.append(get_devops_technologies(tree['tree']))
+        else:
+            repo_snapshot_devops_technologies.append([])
 
-print(f'Time taken to retrieve {len(repo_snapshot_trees)} snapshot trees: {end - start}')
+    for i in range(len(repo_snapshot_commits)):
+        repo_snapshot_commits[i]['devops_technologies'] = repo_snapshot_devops_technologies[i]
 
-start = time.time()
+    repo_info = {'full_name': repo_full_name, 'snapshot_commits': repo_snapshot_commits}
 
-repo_snapshot_devops_technologies = [get_devops_technologies(tree['tree']) for tree in repo_snapshot_trees]
+    repo_infos.append(repo_info)
 
-end = time.time()
+    parsed_repos.add(repo_full_name)
 
-print(f'Time taken to retrieve snapshot devops technologies: {end - start}')
+    # Store in JSON file
+    with open(f'repo_infos.json', 'w') as output_file:
+        output_file.write(json.dumps(repo_infos, indent=2))
 
-print(repo_snapshot_devops_technologies)
+print('Done')
 
-with open(f'{"_".join(repo_full_name.split("/"))}_snapshot_commits.json', 'w') as output_file:
-    output_file.write(json.dumps(repo_snapshot_commits, indent=2))
-
-with open(f'{"_".join(repo_full_name.split("/"))}_trees.json', 'w') as output_file:
-    output_file.write(json.dumps(get_repo_trees(full_name=repo_full_name, commits=repo_snapshot_commits), indent=2))
-
-with open(f'{"_".join(repo_full_name.split("/"))}_devops_technologies.json', 'w') as output_file:
-    output_file.write(json.dumps(repo_snapshot_devops_technologies, indent=2))
