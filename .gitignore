@@ -2,3 +2,4 @@
 __pycache__/
 repository_check_file
 *.json
+*.csv

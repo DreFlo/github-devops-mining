@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import sys
 import time
 import dateutil.parser
@@ -33,7 +33,8 @@ def send_get_request_wait_for_rate_limit(**kwargs) -> requests.Response:
     if RATE_LIMIT_RESET_TIME:
         if datetime.now() < RATE_LIMIT_RESET_TIME:
             print( Fore.YELLOW + f'Rate limit reached, waiting until reset at {RATE_LIMIT_RESET_TIME}' + Style.RESET_ALL)
-            time.sleep((RATE_LIMIT_RESET_TIME - datetime.now()).total_seconds())
+            print(f'[{REQUEST_COUNT}] {kwargs}')
+            time.sleep((RATE_LIMIT_RESET_TIME - datetime.now()).total_seconds() + 1) # Add 1 second to be safe
             RATE_LIMIT_RESET_TIME = None
             print(Fore.GREEN + 'Rate limit reset, continuing' + Style.RESET_ALL)
 
@@ -50,7 +51,7 @@ def send_get_request_wait_for_rate_limit(**kwargs) -> requests.Response:
             time.sleep(2)
             continue
     
-    if response.headers['X-RateLimit-Remaining'] == '0':
+    if 'X-RateLimit-Remaining' in response.headers and response.headers['X-RateLimit-Remaining'] == '0':
         RATE_LIMIT_RESET_TIME = datetime.fromtimestamp(float(response.headers['X-RateLimit-Reset']))
 
     return response
@@ -196,9 +197,9 @@ def get_snapshot_commits_retrieve_all_commits(full_name : str, commit_interval :
     commits = get_repo_commits(full_name=full_name)
     return get_repo_snapshots(commits=commits, commit_interval=commit_interval)
 
-def get_snapshot_commits_query_timedelta(full_name : str, created_at : datetime, updated_at : datetime, commit_count : int, commit_interval : timedelta = timedelta(days=90)) -> list:
+def get_snapshot_commits_query_timedelta(full_name : str, first_commit : dict, updated_at : datetime, commit_interval : timedelta = timedelta(days=90)) -> list:
     # Get first commit
-    result = [get_first_commit(full_name)]
+    result = [first_commit]
 
     commits = []
 
@@ -218,10 +219,13 @@ def get_snapshot_commits_query_timedelta(full_name : str, created_at : datetime,
             extended_search_tries += 1
             since = (prev_until if prev_until is not None else (get_commit_timestamp(result[-1]) + commit_interval)).isoformat()
             until = (prev_until + commit_interval * 8 if prev_until is not None else (get_commit_timestamp(result[-1]) + commit_interval * 8)).isoformat()
-            prev_until = dateutil.parser.isoparse(until)         
+            prev_until = dateutil.parser.isoparse(until)       
         else:
             since = (get_commit_timestamp(result[-1]) + commit_interval - day_window).isoformat()
             until = (get_commit_timestamp(result[-1]) + commit_interval + day_window).isoformat()
+
+        if datetime.fromisoformat(since) > datetime.now(tz=timezone.utc):
+            break
 
         commits = get_repo_commits(full_name=full_name, since=since, until=until, max_pages=1)
 
@@ -254,8 +258,16 @@ def get_snapshot_commits_query_timedelta(full_name : str, created_at : datetime,
 
     return result
 
-def get_snapshot_commits_optimized(full_name : str, commit_count : int, created_at : datetime, updated_at : datetime, commit_interval : timedelta = timedelta(days=90)) -> list:
-    commit_density = commit_count / (updated_at - created_at).days # commits per day
+def get_snapshot_commits_optimized(full_name : str, commit_count : int, updated_at : datetime, commit_interval : timedelta = timedelta(days=90)) -> list:
+    first_commit = get_first_commit(repo_full_name=full_name)
+    if first_commit is None:
+        return None
+    first_commit_timestamp = get_commit_timestamp(first_commit)
+    
+    if (updated_at - first_commit_timestamp).days == 0:
+        return get_snapshot_commits_retrieve_all_commits(full_name=full_name, commit_interval=commit_interval)
+    
+    commit_density = commit_count / (updated_at - first_commit_timestamp).days # commits per day
 
     commit_interval_days = commit_interval.days
 
@@ -263,10 +275,10 @@ def get_snapshot_commits_optimized(full_name : str, commit_count : int, created_
 
     # If, on average, there are less than 200 commits per interval, use the retrieve all commits method
     # This is to optimize the number of requests made
-    if commits_per_interval <= 200: # Github API limit is 100 commits per page, number is double to account for sparse commits since it is an average
+    if commits_per_interval <= 200 or commit_count <= 100: # Github API limit is 100 commits per page, number is double to account for sparse commits since it is an average
         return get_snapshot_commits_retrieve_all_commits(full_name=full_name, commit_interval=commit_interval)
     else:
-        return get_snapshot_commits_query_timedelta(full_name=full_name, created_at=created_at, updated_at=updated_at, commit_count=commit_count, commit_interval=commit_interval)
+        return get_snapshot_commits_query_timedelta(full_name=full_name, first_commit=first_commit, updated_at=updated_at, commit_interval=commit_interval)
 
 
 def get_repo_contents(full_name : str, path : str = '', sha : str = None) -> list:
@@ -311,6 +323,8 @@ def get_commits_count(repo_full_name : str) -> int:
     headers['Authorization'] = f'Bearer {TOKEN}'
     url = f"https://api.github.com/repos/{repo_full_name}/commits?per_page=1"
     r = send_get_request_wait_for_rate_limit(headers=headers, url=url)
+    if r.status_code != 200:
+        return 0
     links = r.links
     rel_last_link_url = urlparse(links["last"]["url"])
     rel_last_link_url_args = parse_qs(rel_last_link_url.query)
@@ -324,9 +338,17 @@ def get_first_commit(repo_full_name : str) -> json:
     headers['Authorization'] = f'Bearer {TOKEN}'
     url = f"https://api.github.com/repos/{repo_full_name}/commits?per_page=1"
     r = send_get_request_wait_for_rate_limit(headers=headers, url=url)
+    if r.status_code != 200:
+        print(f'Error getting first commit for {repo_full_name}')
+        print(r.json())
+        return None
     links = r.links
     rel_last_link_url = links["last"]["url"]
     r = send_get_request_wait_for_rate_limit(headers=headers, url=rel_last_link_url)
+    if r.status_code != 200:
+        print(f'Error getting first commit for {repo_full_name}')
+        print(r.json())
+        return None
     return r.json()[0]
 
 
@@ -335,6 +357,23 @@ def decoded_base_64(fileloc):
     result = send_get_request_wait_for_rate_limit(url=fileloc, headers={'Authorization' : f'Bearer {TOKEN}'})
     data = json.loads(result.content)
 
+    if not 'content' in data:
+        return ""
+
     decoded_content = base64.b64decode(data["content"])
 
     return f"{decoded_content}"
+
+# Hugo
+def get_content_repositories(content,repo,language):
+    headers = {'User-Agent': 'request','Accept-Encoding': 'gzip', 'Authorization': f'Bearer {TOKEN}'}
+    result = send_get_request_wait_for_rate_limit(url=f"https://api.github.com/search/code?q={content}+in:file+language:{language}+repo:{repo}", headers=headers)
+
+
+    return result.json()["items"]
+
+def get_raw_file(repo,branch,path):
+    headers = {'User-Agent': 'request','Accept-Encoding': 'gzip', 'Authorization': f'Bearer {TOKEN}'}
+    result = send_get_request_wait_for_rate_limit(url=f"https://raw.githubusercontent.com/{repo}/{branch}/{path}", headers=headers)
+
+    return str(result.content)

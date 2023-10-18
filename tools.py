@@ -7,29 +7,65 @@ from re import search, IGNORECASE
 
 from github_api_wrappers import *
 
-sleep = 2
+sleep = 0
+sleep_code = 1
 
 Maven = "Maven"
 Kubernetes = "Kubernetes"
+GitHubActions = "GitHubActions"
 
-repos_filename = [("Travis","\.travis\.yml"),
-                        ("Gradle","Build\.gradle"),
-                        ("Rake","Rakefile"),
-                        ("Jenkins","Jenkinsfile"),
-                        ("Rancher","Kube_config_rancher-cluster\.yml"),
-                        ("Docker","Dockerfile"),
-                        ("Progress Cheff","Metadata\.rb"),
-                        ("Puppet","Site\.pp"),
-                        ("Nagios","Nagios\.cfg"),
-                        ("Prometheus","Prometheus\.yml"),
-                        ("Maven","pom\.xml"),
-                        ("CircleCI","circleci"),
-                        ('Kubernetes',"deployment\.yml"),
-                        ('Kubernetes',"service\.yml")]
-    
-repos_code = [("JUnit","org\.junit\.runner\.JUnitCore"),
-                    ("Selenium","org\.seleniumhq\.selenium"),
-                    ("Mesos","org\.apache.mesos")]
+repos_filename = [("Agola","\.agola"),
+                  ("AppVeyor","appveyor\.yml"),
+                  ("ArgoCD","argo-cd"),
+                  ("Bytebase","air\.toml"),
+                ("Cartographer","cartographer\.yaml"),
+                ("CircleCI","circleci"),
+                ("Cloud 66 Skycap","cloud66"),
+                ("Cloudbees Codeship","codeship-services\.yml"),
+                ("Devtron","devtron-ci\.yaml"),
+                ("Flipt","flipt.yml"),
+                ("GitLab","gitlab-ci\.yml"),
+                ("Google Cloud Build","cloudbuild.yaml"),
+                ("Helmwave","helmwave.yml"),
+                ("Travis","\.travis\.yml"),
+                ("Jenkins","Jenkinsfile"),
+                ("JenkinsX","jx\-requirements\.yml"),
+                ("JenkinsX","buildPack\/pipeline\.yml"),
+                ("JenkinsX","jenkins\-x\.yml"),
+                ("Keptn","charts\/keptn\/"),
+                ("Liquibase","liquibase\.properties"),
+                ("Mergify","mergify"),
+                ("OctopusDeploy"," \.octopus"),
+                ("OpenKruise","charts\/kruise\/"),
+                ("OpsMx","charts\/isdargo\/"),
+                ("Ortelius","component\.toml"),
+                ("Screwdriver","screwdriver.yaml"),
+                ("Semaphore","\.semaphore\/semaphore\.yaml"),
+                ("TeamCity","\.teamcity"),
+                ("Travis","\.travis\.yml"),
+                ("werf","werf\.yaml"),
+                ("Woodpecker CI", "\.woodpecker\.yml")]
+
+repos_package_json = [("Brigade","brigade"),
+                      ("k6","k6"),
+                      ("OpenFeature","openfeature"),
+                      ("Unleash","unleash")]
+
+repos_code_yml = [("Codefresh","DaemonSet"),
+                ("Codefresh","StatefulSet"),
+                 ("XL Deploy","apiVersion\: \(xl-deploy\|xl\)"),
+                ("Drone","kind\:"),
+                ("Flagger","flagger"),
+                ("Harness.io","featureFlags\:"),
+                ("Flux","fluxcd"),
+                ("GoCD","stages:"),
+                ("Concourse","resources\:"),
+                  ("Kubernetes","apiVersion"),
+                  ("GitHubActions","jobs\:"),
+                  ("AWS CodePipeline","roleArn"),
+                   ]
+
+repos_code_maven = []
 
 def check_file_names(filestools,filename):
     
@@ -62,34 +98,90 @@ def checkExtension(extension,filename):
 
     return False
 
-def find_repo_trees_tools(trees,max_file_calls=10):
+def checkExtensionTree(extension,tree):
+    
+    for f in tree['tree']:
+        if checkExtension(extension,f["path"]):
+            return True
+        
+    return False
+
+def check_tools(reponame,repos_code,extension):
+    
+    tools = set()
+
+    for t in repos_code:
+        time.sleep(sleep_code)
+        if len(get_content_repositories(t[1],reponame,extension)) > 0:
+            tools.add(t[0])
+
+    return tools
+
+def check_tools_read_file(reponame,repos_code,tree,branch,extension,max_count=20):
+
+    tools = set()
+    count = 0
+
+    for f in tree['tree']:
+
+        count += 1
+        
+        if count > max_count: return tools
+
+        if len(tools) == len(repos_code):
+            return tools
+
+        if checkExtension(extension,f["path"]):
+            rawf = get_raw_file(reponame,branch,f["path"])
+            for r in repos_code:
+                if check_file_contents([r] ,rawf):
+                    tools.add(r[0])
+
+    return tools
+
+def count_extension(tree,extension):
+    
+    count = 0
+    for f in tree['tree']:
+        if checkExtension(extension,f["path"]):
+            count += 1
+
+    return count
+
+def find_repo_trees_tools(repo_full_name, default_branch, trees):
     tools_history = [] # [{'date' : $date, 'sha' : $sha, 'tools' : [$tool1, $tool2, ...]}]
 
     for tree in trees:
         
         tools = set()
 
-        count_file_calls = 0
+        if not 'tree' in tree: 
+            tools_history.append({'date' : tree['date'], 'sha' : tree['sha'], 'tools' : list(tools)})
+            continue
 
         for f in tree['tree']:
             tool = check_file_names(repos_filename,f["path"])
-            
+                
             if tool != None:
-            
-               
+                
                 tools.add(tool)
-            
-                if (tool == Maven) and (count_file_calls < max_file_calls):
-                    
-                    count_file_calls += 1
 
-                    contents = decoded_base_64(f["url"])
-                    tool = check_file_contents(repos_code,contents)
+        if Maven in tools:
+            new_tools = check_tools_read_file(repo_full_name,repos_code_maven,tree,default_branch,"pom\.xml")
+            tools = tools.union(new_tools)
+
+        if checkExtensionTree("\.yml",tree) or checkExtensionTree("\.yaml",tree):
             
-                    if tool != None:
-                        
-                        tools.add(tool)
+            new_tools = check_tools_read_file(repo_full_name,repos_code_yml,tree,default_branch,"\.yml")
+            tools = tools.union(new_tools)
+
+            if ( not ( (Kubernetes in tools) and (GitHubActions in tools) ) ):
+
+                new_tools = check_tools_read_file(repo_full_name,repos_code_yml,tree,default_branch,"\.yaml")
+                tools = tools.union(new_tools)
 
         tools_history.append({'date' : tree['date'], 'sha' : tree['sha'], 'tools' : list(tools)})
     
     return tools_history
+        
+    

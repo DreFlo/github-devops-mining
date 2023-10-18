@@ -123,8 +123,7 @@ for repo in repos:
 
     repo_snapshot_commits = get_snapshot_commits_optimized(
         repo_full_name, 
-        commit_count, 
-        dateutil.parser.parse(repo['created_at']), 
+        commit_count,
         dateutil.parser.parse(repo['updated_at']), 
         timedelta(days=90)) # TODO Check interval
     

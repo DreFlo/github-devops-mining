@@ -116,16 +116,16 @@ def find_tools_and_store_in_database() -> None:
         tree_lock.acquire()
 
         # Get the trees to process
-        trees_to_process = trees.pop(0)
-        
-        repo_tools = {'repo_full_name' : trees_to_process['full_name']}
+        trees_to_process = trees.pop(0)        
 
         tree_lock.release()
+
+        repo_tools = {'repo_full_name' : trees_to_process['full_name']}
         
         start = time.time()
 
         # Detect tools
-        repo_tools['snapshots'] = find_repo_trees_tools(trees_to_process['trees'])
+        repo_tools['snapshots'] = find_repo_trees_tools(trees_to_process['full_name'], trees_to_process['default_branch'],trees_to_process['trees'])
 
         end = time.time()
 
@@ -177,14 +177,21 @@ def get_repository_trees(repositories : list) -> None:
 
         commit_count = get_commits_count(repo_full_name)
 
+        if commit_count == 0:
+            print(Fore.MAGENTA + 'GETTER THREAD:\t' + Fore.YELLOW + f'Skipping repository {repo_full_name}, no commits' + Style.RESET_ALL)
+            continue
+
         repo_snapshot_commits = get_snapshot_commits_optimized(
             repo_full_name, 
-            commit_count, 
-            dateutil.parser.parse(repository['created_at']), 
+            commit_count,
             dateutil.parser.parse(repository['updated_at']), 
             timedelta(days=90))
 
         end = time.time()
+
+        if repo_snapshot_commits is None:
+            print(Fore.MAGENTA + 'GETTER THREAD:\t' + Fore.YELLOW + f'Skipping repository {repo_full_name}, could not get first commit' + Style.RESET_ALL)
+            continue
 
         print(Fore.MAGENTA + 'GETTER THREAD:\t' + Style.RESET_ALL + f'Time taken to retrieve {len(repo_snapshot_commits)} snapshot commits: {end - start}')
 
@@ -198,6 +205,7 @@ def get_repository_trees(repositories : list) -> None:
 
         for i in range(len(repo_snapshot_commits)):
             repo_snapshot_trees[i]['date'] = dateutil.parser.isoparse(repo_snapshot_commits[i]['commit']['author']['date'])
+            repo_snapshot_trees[i]['sha'] = repo_snapshot_commits[i]['sha']
             repo_snapshot_trees[i]['repo_full_name'] = repo_full_name
             if 'url' in repo_snapshot_trees[i]:
                 del repo_snapshot_trees[i]['url']
@@ -215,7 +223,7 @@ def get_repository_trees(repositories : list) -> None:
 
         tree_lock.acquire()
 
-        trees.append({'full_name' : repo_full_name, 'trees' : repo_snapshot_trees})
+        trees.append({'full_name' : repo_full_name, 'default_branch' : repository['default_branch'], 'trees' : repo_snapshot_trees})
 
         tree_lock.release()
 
@@ -339,7 +347,7 @@ def main():
     document_count = wrapper.db["random"].count_documents(filter)
     print(Fore.LIGHTCYAN_EX + 'MAIN THREAD:\t' + Fore.WHITE + f'{document_count} documents found' + Style.RESET_ALL)
 
-    cursor = wrapper.get_repositories(filter=filter, projection={"full_name": 1, "created_at": 1, "updated_at": 1, "_id": 0})
+    cursor = wrapper.get_repositories(filter=filter, projection={"full_name": 1, "created_at": 1, "updated_at": 1, "default_branch" : 1, "_id": 0})
     repositories = list(cursor)
 
     getter_thread = threading.Thread(target=get_repository_trees, kwargs={'repositories': repositories}, daemon=True)

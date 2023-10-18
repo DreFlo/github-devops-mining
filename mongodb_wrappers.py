@@ -21,8 +21,11 @@ class MongoDBWrapper:
     def get_all_collections(self) -> list:
         return self.db.list_collection_names()
     
-    def get_repositories(self, filter : dict = {}, projection : dict = None, no_cursor_timeout : bool = False) -> Cursor:
+    def get_repositories(self, filter : dict = {}, projection : dict = None) -> Cursor:
         return self.db["random"].find(filter, projection)
+    
+    def get_repo_tool_histories(self, filter : dict = {}, projection : dict = None) -> Cursor:
+        return self.db["repo_tools_history"].find(filter, projection)
     
     def add_repo_tools(self, repo_tools : dict):
         self.db["repo_tools_history"].insert_one(repo_tools)
