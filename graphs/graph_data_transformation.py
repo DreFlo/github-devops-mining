@@ -3,6 +3,20 @@ from mongodb_wrappers import *
 def get_repo_tool_histories(filter : dict = {}) -> list:
     return list(MongoDBWrapper().get_repo_tool_histories(filter))
 
+def fill_blanks_with_none(histories : list) -> list:
+    filled_histories = []
+    for history in histories:
+        new_history = {'repo_full_name' : history['repo_full_name'], 'snapshots' : []}
+        for snapshot in history['snapshots']:
+            new_snapshot = {'date' : snapshot['date'], 'sha' : snapshot['sha']}
+            if len(snapshot['tools']) == 0:
+                new_snapshot['tools'] = ['None']
+            else:
+                new_snapshot['tools'] = snapshot['tools']
+            new_history['snapshots'].append(new_snapshot)
+        filled_histories.append(new_history)
+    return filled_histories
+
 def flatten_repo_tool_histories(histories : list) -> list:
     flattened_histories = []
     for history in histories:
@@ -25,6 +39,8 @@ def aggregate_flattened_repo_tool_histories_by_quarter(flattened_histories : lis
             aggregated_histories[key] = {}
         if history['repo_full_name'] in aggregated_histories[key]:
             aggregated_histories[key][history['repo_full_name']] |= set(history['tools'])
+            if len(aggregated_histories[key][history['repo_full_name']]) != 1 and 'None' in aggregated_histories[key][history['repo_full_name']]:
+                aggregated_histories[key][history['repo_full_name']].remove('None')
         else:
             aggregated_histories[key][history['repo_full_name']] = set(history['tools'])
     return aggregated_histories
@@ -85,7 +101,8 @@ def create_csv_from_aggregate_histories(repos : list, aggregated_histories : dic
 
 tool_histories = get_repo_tool_histories()
 
-flattened_histories = flatten_repo_tool_histories(tool_histories)
+filled_histories = fill_blanks_with_none(tool_histories)
+flattened_histories = flatten_repo_tool_histories(filled_histories)
 aggregated_histories = aggregate_flattened_repo_tool_histories_by_quarter(flattened_histories)
 aggregated_histories = fill_in_blanks_in_aggregated_histories_keys(aggregated_histories)
 aggregated_histories = fill_in_blanks_in_aggregated_histories_values(aggregated_histories)
