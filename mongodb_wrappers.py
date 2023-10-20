@@ -44,4 +44,13 @@ class MongoDBWrapper:
     
     def delete_repo_histories(self):
         self.db["repo_tools_history"].delete_many({})
+
+    def get_random_processed_repositories(self,size):
+        mycol = self.db["random"]
+
+        # TODO Change processtools
+        match = {"$match":  {"$and" : [{"processtools": None}, {"created_at" : { "$lt" : "2020-07-16T00:00:00Z"}}]}}
+        sample = {"$sample": {"size": size}} 
+
+        return list(mycol.aggregate([match, sample]))
     

@@ -9,6 +9,8 @@ from github_api_wrappers import *
 
 sleep = 0
 sleep_code = 1
+workers = 200
+workers_git = 32
 
 Maven = "Maven"
 Kubernetes = "Kubernetes"
@@ -16,17 +18,17 @@ GitHubActions = "GitHubActions"
 
 repos_filename = [("Agola","\.agola"),
                   ("AppVeyor","appveyor\.yml"),
-                  ("ArgoCD","argo-cd"),
+                  ("ArgoCD","argo\-cd"),
                   ("Bytebase","air\.toml"),
                 ("Cartographer","cartographer\.yaml"),
                 ("CircleCI","circleci"),
                 ("Cloud 66 Skycap","cloud66"),
                 ("Cloudbees Codeship","codeship-services\.yml"),
                 ("Devtron","devtron-ci\.yaml"),
-                ("Flipt","flipt.yml"),
+                ("Flipt","flipt\.yml"),
                 ("GitLab","gitlab-ci\.yml"),
-                ("Google Cloud Build","cloudbuild.yaml"),
-                ("Helmwave","helmwave.yml"),
+                ("Google Cloud Build","cloudbuild\.yaml"),
+                ("Helmwave","helmwave\.yml"),
                 ("Travis","\.travis\.yml"),
                 ("Jenkins","Jenkinsfile"),
                 ("JenkinsX","jx\-requirements\.yml"),
@@ -42,14 +44,8 @@ repos_filename = [("Agola","\.agola"),
                 ("Screwdriver","screwdriver.yaml"),
                 ("Semaphore","\.semaphore\/semaphore\.yaml"),
                 ("TeamCity","\.teamcity"),
-                ("Travis","\.travis\.yml"),
                 ("werf","werf\.yaml"),
                 ("Woodpecker CI", "\.woodpecker\.yml")]
-
-repos_package_json = [("Brigade","brigade"),
-                      ("k6","k6"),
-                      ("OpenFeature","openfeature"),
-                      ("Unleash","unleash")]
 
 repos_code_yml = [("Codefresh","DaemonSet"),
                 ("Codefresh","StatefulSet"),
@@ -58,14 +54,12 @@ repos_code_yml = [("Codefresh","DaemonSet"),
                 ("Flagger","flagger"),
                 ("Harness.io","featureFlags\:"),
                 ("Flux","fluxcd"),
-                ("GoCD","stages:"),
+                ("GoCD","stages\:"),
                 ("Concourse","resources\:"),
-                  ("Kubernetes","apiVersion"),
+                  ("Kubernetes","apiVersion\:"),
                   ("GitHubActions","jobs\:"),
                   ("AWS CodePipeline","roleArn"),
                    ]
-
-repos_code_maven = []
 
 def check_file_names(filestools,filename):
     
@@ -148,6 +142,20 @@ def count_extension(tree,extension):
 
     return count
 
+def find_tools_inside_files(repo_full_name, repo_default_branch,tree):
+
+    tools = set()
+          
+    if checkExtensionTree("\.yml",tree) or checkExtensionTree("\.yaml",tree):
+        
+        new_tools = check_tools_read_file(repo_full_name,repos_code_yml,tree,repo_default_branch,"\.yml")
+        tools = tools.union(new_tools)
+
+        new_tools = check_tools_read_file(repo_full_name,repos_code_yml,tree,repo_default_branch,"\.yaml")
+        tools = tools.union(new_tools)
+
+    return tools
+
 def find_repo_trees_tools(repo_full_name, default_branch, trees):
     tools_history = [] # [{'date' : $date, 'sha' : $sha, 'tools' : [$tool1, $tool2, ...]}]
 
@@ -166,19 +174,9 @@ def find_repo_trees_tools(repo_full_name, default_branch, trees):
                 
                 tools.add(tool)
 
-        if Maven in tools:
-            new_tools = check_tools_read_file(repo_full_name,repos_code_maven,tree,default_branch,"pom\.xml")
-            tools = tools.union(new_tools)
+        new_tools = find_tools_inside_files(repo_full_name, default_branch,tree)
 
-        if checkExtensionTree("\.yml",tree) or checkExtensionTree("\.yaml",tree):
-            
-            new_tools = check_tools_read_file(repo_full_name,repos_code_yml,tree,default_branch,"\.yml")
-            tools = tools.union(new_tools)
-
-            if ( not ( (Kubernetes in tools) and (GitHubActions in tools) ) ):
-
-                new_tools = check_tools_read_file(repo_full_name,repos_code_yml,tree,default_branch,"\.yaml")
-                tools = tools.union(new_tools)
+        tools = tools.union(new_tools)
 
         tools_history.append({'date' : tree['date'], 'sha' : tree['sha'], 'tools' : list(tools)})
     

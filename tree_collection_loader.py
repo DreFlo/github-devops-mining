@@ -1,3 +1,6 @@
+from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
+from functools import reduce
+import random
 import threading
 import signal
 import argparse
@@ -12,7 +15,6 @@ from tools import *
 # Command line arguments
 parser = argparse.ArgumentParser(description='Load trees from GitHub repositories into MongoDB')
 
-parser.add_argument('filter_file_path', nargs='?', type=str, default='', help='Path for JSON file with filter for the repositories to load trees from, if not specified all repositories will be used')
 parser.add_argument('--delete-tools', action='store_true', help='Delete all tools from the repo histories collection and exit')
 parser.add_argument('--check-database', action='store_true', help='Check the database for inconsistencies with check file and exit')
 parser.add_argument('--delete-check-file', action='store_true', help='Delete the repository check file')
@@ -23,20 +25,16 @@ parser.add_argument('--sanity-check', action='store_true', help='Perform a sanit
 interrupt_number = 0
 interrupted = threading.Event()
 
-all_trees_retrieved = threading.Event()
+check_file_lock = threading.Lock()
 
-tree_lock = threading.Lock()
-
-trees = []
-
-parsed_repositories = set()
+parsed_repositories = {}
 
 def initialize_parsed_repositories():
     if os.path.exists('repository_check_file'):
         with open('repository_check_file', 'r') as check_file:
             for line in check_file:
                 check = json.loads(line)
-                parsed_repositories.add(check['repo_full_name'])
+                parsed_repositories[check['repo_full_name']] = {'trees' : check['trees'], 'time' : check['time']}
 
 def split_tree_into_subtrees(tree : dict) -> list:
         # Initialize subtrees with the root tree
@@ -61,7 +59,7 @@ def split_tree_into_subtrees(tree : dict) -> list:
         for subtree in subtrees.values():
             encoded_size = sys.getsizeof(bson.BSON.encode(subtree))
             if encoded_size >= 16793600:
-                print(Fore.BLUE + 'PROCESSER THREAD:\t' + Fore.YELLOW + f'Splitting subtree with {len(subtree["tree"])} nodes' + Style.RESET_ALL)
+                print(Fore.BLUE + threading.current_thread().name + ':\t' + Fore.YELLOW + f'Splitting subtree with {len(subtree["tree"])} nodes' + Style.RESET_ALL)
                 parts = int(encoded_size / 16793600) + 1
                 parted_subtrees = []
                 while True:
@@ -87,149 +85,116 @@ def split_tree_into_subtrees(tree : dict) -> list:
                         continue
                     break
                 size_limited_subtrees.extend(parted_subtrees)
-                print(Fore.BLUE + 'PROCESSER THREAD:\t' + Fore.YELLOW + f'Split subtree into {parts} parts ({sum([len(parted_subtree["tree"] for parted_subtree in parted_subtrees)])} nodes)' + Style.RESET_ALL)
+                print(Fore.BLUE + threading.current_thread().name + ':\t' + Fore.YELLOW + f'Split subtree into {parts} parts ({sum([len(parted_subtree["tree"] for parted_subtree in parted_subtrees)])} nodes)' + Style.RESET_ALL)
             else:
                 size_limited_subtrees.append(subtree)
 
         return size_limited_subtrees
 
-def find_tools_and_store_in_database() -> None:
-    global interrupted, all_trees_retrieved, trees, tree_lock
+def find_tools_and_store_in_database(trees_to_process) -> bool:
+    global interrupted
     wrapper = MongoDBWrapper()
-    print(Fore.BLUE + 'PROCESSER THREAD:\t' + Fore.YELLOW + 'PROCESSER thread started' + Style.RESET_ALL)
-    while True:
-        tree_lock.acquire()
+    repo_tools = {'repo_full_name' : trees_to_process['full_name']}
+    
+    # start = time.time()
 
-        length = len(trees)
+    # Detect tools
+    repo_tools['snapshots'] = find_repo_trees_tools(trees_to_process['full_name'], trees_to_process['default_branch'],trees_to_process['trees'])
 
-        tree_lock.release()
+    # end = time.time()
 
-        if all_trees_retrieved.is_set() and length == 0:
-            print(Fore.BLUE + 'PROCESSER THREAD:\t' + Fore.GREEN + 'All trees processed, exiting safely' + Style.RESET_ALL)
-            return
-        
-        # Wait until there are trees to process
-        if length == 0:
-            time.sleep(2)
-            continue
+    #print(Fore.BLUE + threading.current_thread().name + ':\t' + Style.RESET_ALL + f'Time taken to detect tools in {len(trees_to_process["trees"])} trees: {end - start}')
 
-        tree_lock.acquire()
+    tries = 0
 
-        # Get the trees to process
-        trees_to_process = trees.pop(0)        
-
-        tree_lock.release()
-
-        repo_tools = {'repo_full_name' : trees_to_process['full_name']}
-        
-        start = time.time()
-
-        # Detect tools
-        repo_tools['snapshots'] = find_repo_trees_tools(trees_to_process['full_name'], trees_to_process['default_branch'],trees_to_process['trees'])
-
-        end = time.time()
-
-        print(Fore.BLUE + 'PROCESSER THREAD:\t' + Style.RESET_ALL + f'Time taken to detect tools in {len(trees_to_process["trees"])} trees: {end - start}')
-
-        tries = 0
-
-        # Add tools to database
-        while tries < 5:
-            try:
-                if not wrapper.has_been_processed(repo_tools['repo_full_name']):
-                    wrapper.add_repo_tools(repo_tools)
-                break
-            except Exception as e:
-                print(e)
-                print(Fore.BLUE + 'PROCESSER THREAD:\t' + Fore.RED + 'Retrying to add tools' + Style.RESET_ALL)
-                tries += 1
-                continue
-
-        if tries == 5:
-            print(Fore.BLUE + 'PROCESSER THREAD:\t' + Fore.RED + 'Failed to add tools' + Style.RESET_ALL)
-            continue
-        else:
-            print(Fore.BLUE + 'PROCESSER THREAD:\t' + Fore.GREEN + 'Tools added successfully' + Style.RESET_ALL)   
-
-def get_repository_trees(repositories : list) -> None:
-    global interrupted, all_trees_retrieved, trees, tree_lock
-    wrapper = MongoDBWrapper()
-
-    for repository in repositories:
-        if interrupted.is_set():
-            print(Fore.MAGENTA + 'GETTER THREAD:\t' + Fore.GREEN + 'Interrupted, exiting safely' + Style.RESET_ALL)
+    # Add tools to database
+    while tries < 5:
+        try:
+            if not wrapper.has_been_processed(repo_tools['repo_full_name']):
+                wrapper.add_repo_tools(repo_tools)
             break
-
-        if repository['full_name'] in parsed_repositories:
-            print(Fore.MAGENTA + 'GETTER THREAD:\t' + Fore.YELLOW + f'Skipping repository {repository["full_name"]}, already parsed' + Style.RESET_ALL)
+        except Exception as e:
+            print(e)
+            print(Fore.BLUE + threading.current_thread().name + '\t' + Fore.RED + 'Retrying to add tools' + Style.RESET_ALL)
+            tries += 1
             continue
 
-        # Check if has already been processed
-        if wrapper.has_been_processed(repository['full_name']):
-            print(Fore.MAGENTA + 'GETTER THREAD:\t' + Fore.YELLOW + f'Skipping repository {repository["full_name"]}, already processed' + Style.RESET_ALL)
-            continue
-        
-        repo_full_name = repository['full_name']
+    if tries == 5:
+        print(Fore.BLUE + threading.current_thread().name + ':\t' + Fore.RED + 'Failed to add tools' + Style.RESET_ALL)
+        return False
+    else:
+        #print(Fore.BLUE + 'PROCESSER THREAD:\t' + Fore.GREEN + 'Tools added successfully' + Style.RESET_ALL)
+        return True
 
-        print(Fore.MAGENTA + 'GETTER THREAD:\t' + Style.RESET_ALL + f'Processing repository: {repo_full_name}')
+def get_repository_trees(repository : dict) -> None:
+    global interrupted, parsed_repositories, check_file_lock
+    wrapper = MongoDBWrapper()
 
-        start = time.time()
+    if interrupted.is_set():
+        print(Fore.MAGENTA + threading.current_thread().name + ':\t' + Fore.GREEN + 'Interrupted, exiting safely' + Style.RESET_ALL)
+        return
 
-        commit_count = get_commits_count(repo_full_name)
+    if repository['full_name'] in parsed_repositories:
+        print(Fore.MAGENTA + threading.current_thread().name + ':\t' + Fore.YELLOW + f'Skipping repository {repository["full_name"]}, already parsed' + Style.RESET_ALL)
+        return
 
-        if commit_count == 0:
-            print(Fore.MAGENTA + 'GETTER THREAD:\t' + Fore.YELLOW + f'Skipping repository {repo_full_name}, no commits' + Style.RESET_ALL)
-            continue
+    # Check if has already been processed
+    if wrapper.has_been_processed(repository['full_name']):
+        print(Fore.MAGENTA + threading.current_thread().name + ':\t' + Fore.YELLOW + f'Skipping repository {repository["full_name"]}, already processed' + Style.RESET_ALL)
+        return
+    
+    repo_full_name = repository['full_name']
 
-        repo_snapshot_commits = get_snapshot_commits_optimized(
-            repo_full_name, 
-            commit_count,
-            dateutil.parser.parse(repository['updated_at']), 
-            timedelta(days=90))
+    print(Fore.MAGENTA + threading.current_thread().name + ':\t' + Style.RESET_ALL + f'Processing repository: {repo_full_name}')
 
-        end = time.time()
+    start = time.time()
 
-        if repo_snapshot_commits is None:
-            print(Fore.MAGENTA + 'GETTER THREAD:\t' + Fore.YELLOW + f'Skipping repository {repo_full_name}, could not get first commit' + Style.RESET_ALL)
-            continue
+    commit_count, first_commit = get_commit_count_and_first_commit(repo_full_name)
 
-        print(Fore.MAGENTA + 'GETTER THREAD:\t' + Style.RESET_ALL + f'Time taken to retrieve {len(repo_snapshot_commits)} snapshot commits: {end - start}')
+    print(Fore.MAGENTA + threading.current_thread().name + ':\t' + Style.RESET_ALL + f'Commit count: {commit_count}')
 
-        start = time.time()
+    if commit_count == 0 or first_commit == None:
+        print(Fore.MAGENTA + 'GETTER THREAD:\t' + Fore.YELLOW + f'Skipping repository {repo_full_name}, could not get first commit or commit_count' + Style.RESET_ALL)
+        return
 
-        repo_snapshot_trees = get_repo_trees(full_name=repo_full_name, commits=repo_snapshot_commits)
+    repo_snapshot_commits = get_snapshot_commits_optimized(
+        repo_full_name, 
+        commit_count,
+        first_commit,
+        dateutil.parser.parse(repository['updated_at']), 
+        timedelta(days=90))
 
-        end = time.time()
+    if repo_snapshot_commits is None:
+        print(Fore.MAGENTA + 'GETTER THREAD:\t' + Fore.YELLOW + f'Skipping repository {repo_full_name}, could not get first commit' + Style.RESET_ALL)
+        return
 
-        print(Fore.MAGENTA + 'GETTER THREAD:\t' + Style.RESET_ALL + f'Time taken to retrieve {len(repo_snapshot_trees)} snapshot trees: {end - start}')
+    repo_snapshot_trees = get_repo_trees(full_name=repo_full_name, commits=repo_snapshot_commits)
 
-        for i in range(len(repo_snapshot_commits)):
-            repo_snapshot_trees[i]['date'] = dateutil.parser.isoparse(repo_snapshot_commits[i]['commit']['author']['date'])
-            repo_snapshot_trees[i]['sha'] = repo_snapshot_commits[i]['sha']
-            repo_snapshot_trees[i]['repo_full_name'] = repo_full_name
-            if 'url' in repo_snapshot_trees[i]:
-                del repo_snapshot_trees[i]['url']
+    for i in range(len(repo_snapshot_commits)):
+        repo_snapshot_trees[i]['date'] = dateutil.parser.isoparse(repo_snapshot_commits[i]['commit']['author']['date'])
+        repo_snapshot_trees[i]['sha'] = repo_snapshot_commits[i]['sha']
+        repo_snapshot_trees[i]['repo_full_name'] = repo_full_name
+        if 'url' in repo_snapshot_trees[i]:
+            del repo_snapshot_trees[i]['url']
 
-        if len(repo_snapshot_trees) == 0:
-            print(Fore.MAGENTA + 'GETTER THREAD:\t' + Style.RESET_ALL + f'No trees found for {repo_full_name}')
-            continue
+    if len(repo_snapshot_trees) == 0:
+        print(Fore.MAGENTA + 'GETTER THREAD:\t' + Style.RESET_ALL + f'No trees found for {repo_full_name}')
+        return
 
-        with open('repository_check_file', 'a') as check_file:
-            check_file.write(json.dumps({'repo_full_name' : repo_full_name, 'trees' : len(repo_snapshot_trees)}) + '\n')
+    stored_trees = find_tools_and_store_in_database({'full_name' : repo_full_name, 'default_branch' : repository['default_branch'], 'trees' : repo_snapshot_trees})
 
-        parsed_repositories.add(repo_full_name)
+    stop = time.time()
 
-        print(Fore.MAGENTA + 'GETTER THREAD:\t' + Style.RESET_ALL + f'Adding {len(repo_snapshot_trees)} trees from {repo_full_name} to processing queue')
+    if (stored_trees):
+        check_file_lock.acquire()
 
-        tree_lock.acquire()
+        parsed_repositories[repo_full_name] = {'trees' : len(repo_snapshot_trees), 'time' : stop - start}
 
-        trees.append({'full_name' : repo_full_name, 'default_branch' : repository['default_branch'], 'trees' : repo_snapshot_trees})
+        check_file_lock.release()
+    else:
+        print(Fore.MAGENTA + 'GETTER THREAD:\t' + Fore.RED + f'Failed to store trees for {repo_full_name}' + Style.RESET_ALL)
 
-        tree_lock.release()
 
-    all_trees_retrieved.set()
-
-    print(Fore.MAGENTA + 'GETTER THREAD:\t' + Fore.GREEN + 'All repositories retrieved, exiting safely' + Style.RESET_ALL)
 
 def set_interrupted_flag(_signal, _frame) -> None:
     global interrupted, interrupt_number
@@ -286,6 +251,22 @@ interrupt_at = None
 def raise_sigint() -> None:
     signal.raise_signal(signal.SIGINT)
 
+def save_check_file() -> None:
+    global parsed_repositories, check_file_lock
+    with open('repository_check_file', 'w') as check_file:
+        check_file_lock.acquire()
+        for repo_full_name, repo_info in parsed_repositories.items():
+            check_file.write(json.dumps({'repo_full_name' : repo_full_name, 'trees' : repo_info['trees'], 'time' : repo_info['time']}) + '\n')
+        check_file_lock.release()
+
+def save_check_file_every_15_seconds() -> None:
+    while True:
+        save_check_file()
+        if interrupted.is_set():
+            break
+        time.sleep(15)
+    return
+
 def main():
     global interrupt_at
     wrapper = MongoDBWrapper()
@@ -298,16 +279,15 @@ def main():
         timer.daemon = True
         timer.start()
         
-
     if parser.parse_args().delete_tools:
-        print(Fore.LIGHTCYAN_EX + 'MAIN THREAD:\t' + Fore.RED + 'Deleting all tools from the repo histories collection' + Style.RESET_ALL)
+        print(Fore.LIGHTCYAN_EX + threading.current_thread().name + ':\t' + Fore.RED + 'Deleting all tools from the repo histories collection' + Style.RESET_ALL)
         print("To delete all tools from the repo histories collection, type 'DELETE' and press enter")
         if input() == 'DELETE':
             wrapper.delete_repo_histories()
         return
     
     if parser.parse_args().check_database:
-        print(Fore.LIGHTCYAN_EX + 'MAIN THREAD:\t' + Fore.YELLOW + 'Checking database' + Style.RESET_ALL)
+        print(Fore.LIGHTCYAN_EX + threading.current_thread().name + ':\t' + Fore.YELLOW + 'Checking database' + Style.RESET_ALL)
         check_database()
         return
     
@@ -317,14 +297,14 @@ def main():
         return
     
     if parser.parse_args().test_github_api_limits:
-        print(Fore.LIGHTCYAN_EX + 'MAIN THREAD:\t' + Fore.YELLOW + 'Testing GitHub API limits' + Style.RESET_ALL)
+        print(Fore.LIGHTCYAN_EX + threading.current_thread().name + ':\t' + Fore.YELLOW + 'Testing GitHub API limits' + Style.RESET_ALL)
         filter = {}
         test_github_api_limits(wrapper.get_repositories(filter=filter, projection={"full_name": 1, "created_at": 1, "updated_at": 1, "_id": 0}))
         return
     
     if parser.parse_args().delete_check_file:
-        print(Fore.LIGHTCYAN_EX + 'MAIN THREAD:\t' + Fore.RED + 'Deleting repository check file' + Style.RESET_ALL)
-        print("To delete the check file, type 'DELETE' and press enter")
+        print(Fore.LIGHTCYAN_EX + threading.current_thread().name + ':\t' + Fore.RED + 'Deleting repository check file' + Style.RESET_ALL)
+        print(Fore.LIGHTCYAN_EX + threading.current_thread().name + ':\t' + "To delete the check file, type 'DELETE' and press enter")
         if input() == 'DELETE':
             if os.path.exists('repository_check_file'):
                 os.remove('repository_check_file')
@@ -333,34 +313,24 @@ def main():
 
     signal.signal(signal.SIGINT, set_interrupted_flag)
 
-    filter = {}
+    saver_thread = threading.Thread(target=save_check_file_every_15_seconds, daemon=False)
 
-    if parser.parse_args().filter_file_path != '':
-        with open(parser.parse_args().filter_file_path, 'r') as filter_file:
-            filter = json.load(filter_file)
+    saver_thread.start()
 
-    # Print filter
-    print(Fore.LIGHTCYAN_EX + 'MAIN THREAD:\t' + Fore.YELLOW + 'Filter:' + Style.RESET_ALL)
-    print(json.dumps(filter, indent=2))
+    while not interrupted.is_set():
+        futures = []
+        repositories = wrapper.get_random_processed_repositories(1000)
 
-    # Count repositories
-    document_count = wrapper.db["random"].count_documents(filter)
-    print(Fore.LIGHTCYAN_EX + 'MAIN THREAD:\t' + Fore.WHITE + f'{document_count} documents found' + Style.RESET_ALL)
+        with ThreadPoolExecutor(max_workers=32) as executor:
+            for repository in repositories:
+                f = executor.submit(get_repository_trees, repository)
+                futures.append(f)
 
-    cursor = wrapper.get_repositories(filter=filter, projection={"full_name": 1, "created_at": 1, "updated_at": 1, "default_branch" : 1, "_id": 0})
-    repositories = list(cursor)
-
-    getter_thread = threading.Thread(target=get_repository_trees, kwargs={'repositories': repositories}, daemon=True)
-    loader_thread = threading.Thread(target=find_tools_and_store_in_database, daemon=True)
-
-    getter_thread.start()
-    loader_thread.start()
-
-    while getter_thread.is_alive():
-        getter_thread.join(5)
-
-    while loader_thread.is_alive():
-        loader_thread.join(5)
+        not_done = futures
+        while not_done:
+            _, not_done = wait(not_done, timeout=1, return_when=FIRST_COMPLETED)
+            
+    saver_thread.join()
 
     sys.exit(0)
 

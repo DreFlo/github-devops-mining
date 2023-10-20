@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta, timezone
 import sys
+import threading
 import time
 import dateutil.parser
 import requests
@@ -24,18 +25,27 @@ CONNECTION_ERROR_COUNT = 0
 
 RATE_LIMIT_RESET_TIME = None
 
+request_lock = threading.Lock()
+
 def send_get_request_wait_for_rate_limit(**kwargs) -> requests.Response:
-    global REQUEST_COUNT, RATE_LIMIT_RESET_TIME, CONNECTION_ERROR_COUNT
+    global REQUEST_COUNT, RATE_LIMIT_RESET_TIME, CONNECTION_ERROR_COUNT, request_lock
+
+    request_lock.acquire()
     REQUEST_COUNT += 1
+    reset_time = RATE_LIMIT_RESET_TIME
+    request_lock.release()
 
-    # print(f'[{REQUEST_COUNT}] {kwargs}')
-
-    if RATE_LIMIT_RESET_TIME:
-        if datetime.now() < RATE_LIMIT_RESET_TIME:
-            print( Fore.YELLOW + f'Rate limit reached, waiting until reset at {RATE_LIMIT_RESET_TIME}' + Style.RESET_ALL)
+    if reset_time:
+        if datetime.now() < reset_time:
+            print(Fore.YELLOW + f'Rate limit reached, waiting until reset at {reset_time}' + Style.RESET_ALL)
+            request_lock.acquire()
             print(f'[{REQUEST_COUNT}] {kwargs}')
-            time.sleep((RATE_LIMIT_RESET_TIME - datetime.now()).total_seconds() + 1) # Add 1 second to be safe
-            RATE_LIMIT_RESET_TIME = None
+            request_lock.release()
+            time.sleep((reset_time - datetime.now()).total_seconds() + 1) # Add 1 second to be safe
+            request_lock.acquire()
+            if RATE_LIMIT_RESET_TIME != None:
+                RATE_LIMIT_RESET_TIME = None
+            request_lock.release()
             print(Fore.GREEN + 'Rate limit reset, continuing' + Style.RESET_ALL)
 
     kwargs['timeout'] = None
@@ -43,22 +53,36 @@ def send_get_request_wait_for_rate_limit(**kwargs) -> requests.Response:
     while True:
         try:
             response = requests.get(**kwargs)
+            if 'retry-after' in response.headers:
+                request_lock.acquire()
+                if RATE_LIMIT_RESET_TIME != None:
+                    RATE_LIMIT_RESET_TIME = datetime.now() + timedelta(seconds=int(response.headers['retry-after']))
+                request_lock.release()
+                time.sleep(int(response.headers['retry-after']) + 1)
+                continue
             break
         except requests.exceptions.ConnectionError:
             print(Fore.RED + 'Connection error, waiting 2 seconds' + Style.RESET_ALL)
+            request_lock.acquire()
             REQUEST_COUNT += 1
             CONNECTION_ERROR_COUNT += 1
+            request_lock.release()
             time.sleep(2)
             continue
     
     if 'X-RateLimit-Remaining' in response.headers and response.headers['X-RateLimit-Remaining'] == '0':
-        RATE_LIMIT_RESET_TIME = datetime.fromtimestamp(float(response.headers['X-RateLimit-Reset']))
+        request_lock.acquire()
+        if RATE_LIMIT_RESET_TIME == None:
+            RATE_LIMIT_RESET_TIME = datetime.fromtimestamp(float(response.headers['X-RateLimit-Reset']))
+        request_lock.release()
 
     return response
 
 def reset_request_count() -> None:
     global REQUEST_COUNT
+    request_lock.acquire()
     REQUEST_COUNT = 0
+    request_lock.release()
 
 # Get repo names for query string
 def get_repository_full_names(query : str = 'path:.github/workflows extension:yaml', per_page : int = 5) -> list:
@@ -258,10 +282,7 @@ def get_snapshot_commits_query_timedelta(full_name : str, first_commit : dict, u
 
     return result
 
-def get_snapshot_commits_optimized(full_name : str, commit_count : int, updated_at : datetime, commit_interval : timedelta = timedelta(days=90)) -> list:
-    first_commit = get_first_commit(repo_full_name=full_name)
-    if first_commit is None:
-        return None
+def get_snapshot_commits_optimized(full_name : str, commit_count : int, first_commit : dict, updated_at : datetime, commit_interval : timedelta = timedelta(days=90)) -> list:
     first_commit_timestamp = get_commit_timestamp(first_commit)
     
     if (updated_at - first_commit_timestamp).days == 0:
@@ -350,6 +371,60 @@ def get_first_commit(repo_full_name : str) -> json:
         print(r.json())
         return None
     return r.json()[0]
+
+def get_commit_count_and_first_commit(repo_full_name : str) -> (int, json):
+    headers = CaseInsensitiveDict()
+    headers['Accept'] = 'application/vnd.github+json'
+    headers['Authorization'] = f'Bearer {TOKEN}'
+    url = f"https://api.github.com/repos/{repo_full_name}/commits?per_page=1"
+
+    tries = 0
+    commits_count = 0
+    rel_last_link_url = None
+    first_commit = None
+
+    while True:
+        if tries > 10:
+            tries = -1
+            break
+        
+        r = send_get_request_wait_for_rate_limit(headers=headers, url=url)
+
+        if r.status_code == 200:
+            links = r.links
+            rel_last_link_url = urlparse(links["last"]["url"])
+            rel_last_link_url_args = parse_qs(rel_last_link_url.query)
+            rel_last_link_url_page_arg = rel_last_link_url_args["page"][0]
+            commits_count = int(rel_last_link_url_page_arg)
+            break
+        else:
+            print(r.content())
+            tries += 1
+            
+        
+    if tries == -1 or commits_count == 0:
+        return (0, None)
+    
+    tries = 0
+
+    while True:
+        if tries > 10:
+            tries = -1
+            break
+    
+        r = send_get_request_wait_for_rate_limit(headers=headers, url=rel_last_link_url)
+
+        if r.status_code == 200:
+            first_commit = r.json()[0]
+            break
+        else:
+            print(r.content())
+            tries += 1
+
+    if tries == -1:
+        return (0, None)
+
+    return (commits_count, first_commit)
 
 
 # Hugo
