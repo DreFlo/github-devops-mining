@@ -1,7 +1,9 @@
-from mongodb_wrappers import *
+import os, sys
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+import mongodb_wrappers
 
 def get_repo_tool_histories(filter : dict = {}) -> list:
-    return list(MongoDBWrapper().get_repo_tool_histories(filter))
+    return list(mongodb_wrappers.MongoDBWrapper().get_repo_tool_histories(filter))
 
 def fill_blanks_with_none(histories : list) -> list:
     filled_histories = []
@@ -71,7 +73,7 @@ def fill_in_blanks_in_aggregated_histories_keys(aggregated_histories : dict) -> 
 # Mutates the aggregated_histories dict
 def fill_in_blanks_in_aggregated_histories_values(aggregated_histories : dict) -> dict:
     sorted_keys = sorted(list(aggregated_histories.keys()))
-    for i in range(len(sorted_keys) - 2):
+    for i in range(len(sorted_keys) - 1):
         key = sorted_keys[i]
         next_key = sorted_keys[i + 1]
         for repo in aggregated_histories[key]:
