@@ -58,6 +58,7 @@ def send_get_request_wait_for_rate_limit(**kwargs) -> requests.Response:
                 if RATE_LIMIT_RESET_TIME != None:
                     RATE_LIMIT_RESET_TIME = datetime.now() + timedelta(seconds=int(response.headers['retry-after']))
                 request_lock.release()
+                print(Fore.YELLOW + f'Rate limit reached, waiting {response.headers["retry-after"]} seconds' + Style.RESET_ALL)
                 time.sleep(int(response.headers['retry-after']) + 1)
                 continue
             break
@@ -382,44 +383,26 @@ def get_commit_count_and_first_commit(repo_full_name : str) -> (int, json):
     commits_count = 0
     rel_last_link_url = None
     first_commit = None
-
-    while True:
-        if tries > 10:
-            tries = -1
-            break
         
-        r = send_get_request_wait_for_rate_limit(headers=headers, url=url)
+    r = send_get_request_wait_for_rate_limit(headers=headers, url=url)
 
-        if r.status_code == 200:
-            links = r.links
-            rel_last_link_url = urlparse(links["last"]["url"])
-            rel_last_link_url_args = parse_qs(rel_last_link_url.query)
-            rel_last_link_url_page_arg = rel_last_link_url_args["page"][0]
-            commits_count = int(rel_last_link_url_page_arg)
-            break
-        else:
-            print(r.content())
-            tries += 1
-            
+    if r.status_code == 200:
+        links = r.links
+        rel_last_link_url = urlparse(links["last"]["url"])
+        rel_last_link_url_args = parse_qs(rel_last_link_url.query)
+        rel_last_link_url_page_arg = rel_last_link_url_args["page"][0]
+        commits_count = int(rel_last_link_url_page_arg)
+    else:
+        print(r.content())
+        tries += 1
         
-    if tries == -1 or commits_count == 0:
-        return (0, None)
-    
-    tries = 0
 
-    while True:
-        if tries > 10:
-            tries = -1
-            break
-    
-        r = send_get_request_wait_for_rate_limit(headers=headers, url=rel_last_link_url)
+    r = send_get_request_wait_for_rate_limit(headers=headers, url=rel_last_link_url)
 
-        if r.status_code == 200:
-            first_commit = r.json()[0]
-            break
-        else:
-            print(r.content())
-            tries += 1
+    if r.status_code == 200:
+        first_commit = r.json()[0]
+    else:
+        print(r.content())
 
     if tries == -1:
         return (0, None)

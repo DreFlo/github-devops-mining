@@ -15,6 +15,7 @@ from tools import *
 # Command line arguments
 parser = argparse.ArgumentParser(description='Load trees from GitHub repositories into MongoDB')
 
+parser.add_argument('its', nargs=1, type=int, default='', help='Number of its to perform')
 parser.add_argument('--delete-tools', action='store_true', help='Delete all tools from the repo histories collection and exit')
 parser.add_argument('--check-database', action='store_true', help='Check the database for inconsistencies with check file and exit')
 parser.add_argument('--delete-check-file', action='store_true', help='Delete the repository check file')
@@ -91,9 +92,8 @@ def split_tree_into_subtrees(tree : dict) -> list:
 
         return size_limited_subtrees
 
-def find_tools_and_store_in_database(trees_to_process) -> bool:
+def find_tools_and_store_in_database(trees_to_process, wrapper : MongoDBWrapper) -> bool:
     global interrupted
-    wrapper = MongoDBWrapper()
     repo_tools = {'repo_full_name' : trees_to_process['full_name']}
     
     # start = time.time()
@@ -106,6 +106,8 @@ def find_tools_and_store_in_database(trees_to_process) -> bool:
     #print(Fore.BLUE + threading.current_thread().name + ':\t' + Style.RESET_ALL + f'Time taken to detect tools in {len(trees_to_process["trees"])} trees: {end - start}')
 
     tries = 0
+
+    print(Fore.BLUE + threading.current_thread().name + ':\t' + Style.RESET_ALL + f'Adding tools to database')
 
     # Add tools to database
     while tries < 5:
@@ -123,12 +125,11 @@ def find_tools_and_store_in_database(trees_to_process) -> bool:
         print(Fore.BLUE + threading.current_thread().name + ':\t' + Fore.RED + 'Failed to add tools' + Style.RESET_ALL)
         return False
     else:
-        #print(Fore.BLUE + 'PROCESSER THREAD:\t' + Fore.GREEN + 'Tools added successfully' + Style.RESET_ALL)
+        print(Fore.BLUE + 'PROCESSER THREAD:\t' + Fore.GREEN + 'Tools added successfully' + Style.RESET_ALL)
         return True
 
-def get_repository_trees(repository : dict) -> None:
+def get_repository_trees(repository : dict, wrapper : MongoDBWrapper) -> None:
     global interrupted, parsed_repositories, check_file_lock
-    wrapper = MongoDBWrapper()
 
     if interrupted.is_set():
         print(Fore.MAGENTA + threading.current_thread().name + ':\t' + Fore.GREEN + 'Interrupted, exiting safely' + Style.RESET_ALL)
@@ -149,7 +150,7 @@ def get_repository_trees(repository : dict) -> None:
 
     start = time.time()
 
-    commit_count, first_commit = get_commit_count_and_first_commit(repo_full_name)
+    commit_count, first_commit = get_commits_count(repository['full_name']), get_first_commit(repository['full_name'])
 
     print(Fore.MAGENTA + threading.current_thread().name + ':\t' + Style.RESET_ALL + f'Commit count: {commit_count}')
 
@@ -181,7 +182,7 @@ def get_repository_trees(repository : dict) -> None:
         print(Fore.MAGENTA + 'GETTER THREAD:\t' + Style.RESET_ALL + f'No trees found for {repo_full_name}')
         return
 
-    stored_trees = find_tools_and_store_in_database({'full_name' : repo_full_name, 'default_branch' : repository['default_branch'], 'trees' : repo_snapshot_trees})
+    stored_trees = find_tools_and_store_in_database({'full_name' : repo_full_name, 'default_branch' : repository['default_branch'], 'trees' : repo_snapshot_trees}, wrapper)
 
     stop = time.time()
 
@@ -317,19 +318,20 @@ def main():
 
     saver_thread.start()
 
-    while not interrupted.is_set():
+    for _ in range(parser.parse_args().its[0]):
         futures = []
         repositories = wrapper.get_random_processed_repositories(1000)
 
         with ThreadPoolExecutor(max_workers=32) as executor:
             for repository in repositories:
-                f = executor.submit(get_repository_trees, repository)
+                f = executor.submit(get_repository_trees, repository, wrapper)
                 futures.append(f)
 
-        not_done = futures
-        while not_done:
-            _, not_done = wait(not_done, timeout=1, return_when=FIRST_COMPLETED)
-            
+        for future in futures:
+            future.result()
+
+    interrupted.set()
+
     saver_thread.join()
 
     sys.exit(0)
