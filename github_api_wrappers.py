@@ -14,6 +14,8 @@ from requests.structures import CaseInsensitiveDict
 from urllib.parse import parse_qs, urlparse
 from colorama import Fore, Style
 
+from utils import thread_print
+
 
 # Load Github Token
 load_dotenv()
@@ -37,16 +39,16 @@ def send_get_request_wait_for_rate_limit(**kwargs) -> requests.Response:
 
     if reset_time:
         if datetime.now() < reset_time:
-            print(Fore.YELLOW + f'Rate limit reached, waiting until reset at {reset_time}' + Style.RESET_ALL)
+            thread_print(Fore.YELLOW + f'Rate limit reached, waiting until reset at {reset_time}')
             request_lock.acquire()
-            print(f'[{REQUEST_COUNT}] {kwargs}')
+            thread_print(f'[{REQUEST_COUNT}] {kwargs}')
             request_lock.release()
             time.sleep((reset_time - datetime.now()).total_seconds() + 1) # Add 1 second to be safe
             request_lock.acquire()
             if RATE_LIMIT_RESET_TIME != None:
                 RATE_LIMIT_RESET_TIME = None
             request_lock.release()
-            print(Fore.GREEN + 'Rate limit reset, continuing' + Style.RESET_ALL)
+            thread_print(Fore.GREEN + 'Rate limit reset, continuing')
 
     kwargs['timeout'] = None
     
@@ -58,12 +60,12 @@ def send_get_request_wait_for_rate_limit(**kwargs) -> requests.Response:
                 if RATE_LIMIT_RESET_TIME != None:
                     RATE_LIMIT_RESET_TIME = datetime.now() + timedelta(seconds=int(response.headers['retry-after']))
                 request_lock.release()
-                print(Fore.YELLOW + f'Rate limit reached, waiting {response.headers["retry-after"]} seconds' + Style.RESET_ALL)
+                thread_print(Fore.YELLOW + f'Rate limit reached, waiting {response.headers["retry-after"]} seconds')
                 time.sleep(int(response.headers['retry-after']) + 1)
                 continue
             break
         except requests.exceptions.ConnectionError:
-            print(Fore.RED + 'Connection error, waiting 2 seconds' + Style.RESET_ALL)
+            thread_print(Fore.RED + 'Connection error, waiting 2 seconds')
             request_lock.acquire()
             REQUEST_COUNT += 1
             CONNECTION_ERROR_COUNT += 1
@@ -237,7 +239,7 @@ def get_snapshot_commits_query_timedelta(full_name : str, first_commit : dict, u
 
     while get_commit_timestamp(result[-1]) + commit_interval < updated_at:
         if extended_search_tries > 100:
-            print(f'Extended search tries exceeded for {full_name}')
+            thread_print(f'Extended search tries exceeded for {full_name}')
             break
         elif day_window > commit_interval:
             ignore_day_window = True
@@ -361,15 +363,15 @@ def get_first_commit(repo_full_name : str) -> json:
     url = f"https://api.github.com/repos/{repo_full_name}/commits?per_page=1"
     r = send_get_request_wait_for_rate_limit(headers=headers, url=url)
     if r.status_code != 200:
-        print(f'Error getting first commit for {repo_full_name}')
-        print(r.json())
+        thread_print(f'Error getting first commit for {repo_full_name}')
+        thread_print(r.json())
         return None
     links = r.links
     rel_last_link_url = links["last"]["url"]
     r = send_get_request_wait_for_rate_limit(headers=headers, url=rel_last_link_url)
     if r.status_code != 200:
-        print(f'Error getting first commit for {repo_full_name}')
-        print(r.json())
+        thread_print(f'Error getting first commit for {repo_full_name}')
+        thread_print(r.json())
         return None
     return r.json()[0]
 
@@ -379,7 +381,6 @@ def get_commit_count_and_first_commit(repo_full_name : str) -> (int, json):
     headers['Authorization'] = f'Bearer {TOKEN}'
     url = f"https://api.github.com/repos/{repo_full_name}/commits?per_page=1"
 
-    tries = 0
     commits_count = 0
     rel_last_link_url = None
     first_commit = None
@@ -388,23 +389,24 @@ def get_commit_count_and_first_commit(repo_full_name : str) -> (int, json):
 
     if r.status_code == 200:
         links = r.links
+        first_commit_link = links["last"]["url"]
         rel_last_link_url = urlparse(links["last"]["url"])
         rel_last_link_url_args = parse_qs(rel_last_link_url.query)
         rel_last_link_url_page_arg = rel_last_link_url_args["page"][0]
         commits_count = int(rel_last_link_url_page_arg)
     else:
-        print(r.content())
-        tries += 1
-        
+        thread_print(r.content())
+        return (0, None)
 
-    r = send_get_request_wait_for_rate_limit(headers=headers, url=rel_last_link_url)
+    if commits_count == 0:
+        return (0, None) 
+
+    r = send_get_request_wait_for_rate_limit(headers=headers, url=first_commit_link)
 
     if r.status_code == 200:
         first_commit = r.json()[0]
     else:
-        print(r.content())
-
-    if tries == -1:
+        thread_print(r.content())
         return (0, None)
 
     return (commits_count, first_commit)

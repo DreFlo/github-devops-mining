@@ -29,6 +29,8 @@ class MongoDBWrapper:
     
     def add_repo_tools(self, repo_tools : dict):
         self.db["repo_tools_history"].insert_one(repo_tools)
+        # TODO Uncomment this line when we are ready to mark the repo as processed
+        # self.db["random"].update_one({"full_name" : repo_tools["repo_full_name"]}, {"retrieved_repo_histories" : True})
 
     def count_repo_histories(self):
         return self.db["repo_tools_history"].count_documents({})
@@ -48,8 +50,7 @@ class MongoDBWrapper:
     def get_random_processed_repositories(self,size):
         mycol = self.db["random"]
 
-        # TODO Change processtools
-        match = {"$match":  {"$and" : [{"processtools": None}, {"created_at" : { "$lt" : "2020-07-16T00:00:00Z"}}]}}
+        match = {"$match":  {"$and" : [{'tools_used' : { "$exists": True, "$ne" : []}}, {"created_at" : { "$lt" : "2020-07-16T00:00:00Z"}}, {"retrieved_repo_histories" : {"$ne" : True}}]}}
         sample = {"$sample": {"size": size}} 
 
         return list(mycol.aggregate([match, sample]))
