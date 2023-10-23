@@ -2,13 +2,12 @@ import multiprocessing
 import multiprocessing.connection
 import argparse
 import time
-import os
 import sys
 import atexit
-import signal
 import tree_collection_loader
 
 from datetime import datetime
+from colorama import Fore, Style
 
 
 parser = argparse.ArgumentParser(description='Load trees from GitHub repositories into MongoDB')
@@ -51,11 +50,20 @@ def main():
     if parser.parse_args().interrupt_at is not None:
         interrupt_at = datetime.strptime(parser.parse_args().interrupt_at, '%Y-%m-%dT%H:%M')
 
+    delete_tools = False
+
+    if parser.parse_args().delete_tools:
+        print(Fore.RED + 'Deleting all tools from the repo histories collection' + Style.RESET_ALL)
+        print("To delete all tools from the repo histories collection, type 'DELETE' and press enter")
+        if input() == 'DELETE':
+            delete_tools = True
+
+
     parsed_args = parser.parse_args()
 
     sender, receiver = multiprocessing.Pipe()
 
-    args = (receiver, parsed_args.delete_tools, parsed_args.check_database, parsed_args.sanity_check, parsed_args.test_github_api_limits, parsed_args.delete_check_file, parsed_args.stop_if_no_sample)
+    args = (receiver, delete_tools, parsed_args.check_database, parsed_args.sanity_check, parsed_args.test_github_api_limits, parsed_args.delete_check_file, parsed_args.stop_if_no_sample)
 
     print(args)
 

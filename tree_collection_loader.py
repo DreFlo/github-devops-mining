@@ -200,7 +200,7 @@ def set_interrupted_flag_and_cancel_futures(connection: multiprocessing.connecti
     if connection is None:
         return
     _ = connection.recv()
-    thread_print(Fore.YELLOW + f'Interrupt received (time: {datetime.now()}), stopping after current repository')
+    thread_print(Fore.YELLOW + f'Interrupt received (time: {datetime.now()}), stopping after current repository' + Style.RESET_ALL)
     interrupted.set()
     for future in futures:
         future.cancel()
@@ -282,10 +282,7 @@ def retrieve_tool_histories(receiver, delete_tools, _check_database, _sanity_che
     #     timer.start()
         
     if delete_tools:
-        thread_print(Fore.RED + 'Deleting all tools from the repo histories collection')
-        thread_print("To delete all tools from the repo histories collection, type 'DELETE' and press enter")
-        if input() == 'DELETE':
-            wrapper.delete_repo_histories()
+        wrapper.delete_repo_histories()
         return
     
     if _check_database:
@@ -355,6 +352,3 @@ def retrieve_tool_histories(receiver, delete_tools, _check_database, _sanity_che
     saver_thread.join()
 
     sys.exit(0)
-
-if __name__ == '__main__':
-    retrieve_tool_histories(None, False, False, False, False, False, False)
