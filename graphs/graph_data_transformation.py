@@ -1,9 +1,9 @@
+from dotenv import load_dotenv
+load_dotenv('../.env')
+
 import os, sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import mongodb_wrappers
-from dotenv import load_dotenv
-
-load_dotenv()
 
 mongodb_wrappers.URI = os.getenv('MONGODB_URI')
 

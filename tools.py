@@ -128,7 +128,7 @@ def check_tools_read_file(reponame,repos_code,tree,branch,extension):
         for f in tree['tree']:
 
             if checkExtension(extension,f["path"]):
-                t = executor.submit(get_raw_file,reponame,branch,f["path"])
+                t = executor.submit(get_raw_file,reponame,tree['sha'],f["path"])
                 tasks.append(t)
 
         for t in tasks:
