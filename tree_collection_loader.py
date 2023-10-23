@@ -155,17 +155,12 @@ def get_repository_trees(repository : dict, wrapper : MongoDBWrapper) -> None:
     if commit_count == 0 or first_commit == None:
         thread_print(Fore.YELLOW + f'Skipping repository {repo_full_name}, could not get first commit or commit_count')
         return
-    
-    last_tree_sha = repository['tree'].split('/')[-1]
-
-    print(last_tree_sha)
 
     repo_snapshot_commits = get_snapshot_commits_optimized(
         repo_full_name, 
         commit_count,
         first_commit,
-        dateutil.parser.parse(repository['updated_at']),
-        last_tree_sha,
+        dateutil.parser.parse(repository['updated_at']), 
         timedelta(days=90))
 
     if repo_snapshot_commits is None:
