@@ -78,7 +78,7 @@ def main():
             send_message_to_subproc_and_wait(sender=sender)
             sys.exit(0)
 
-    print("Subproc finished on its own")
+    print(f"Subproc finished on its own - code: {subproc.exitcode} - at {datetime.now()}")
 
 if __name__ == '__main__':
     main()

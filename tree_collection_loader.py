@@ -1,4 +1,4 @@
-from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
+from concurrent.futures import ThreadPoolExecutor, wait, ALL_COMPLETED
 from functools import reduce
 import multiprocessing
 import multiprocessing.connection
@@ -197,6 +197,8 @@ def get_repository_trees(repository : dict, wrapper : MongoDBWrapper) -> None:
 
 def set_interrupted_flag_and_cancel_futures(connection: multiprocessing.connection.Connection) -> None:
     global interrupted, interrupt_number, futures
+    if connection is None:
+        return
     _ = connection.recv()
     thread_print(Fore.YELLOW + f'Interrupt received (time: {datetime.now()}), stopping after current repository')
     interrupted.set()
@@ -305,9 +307,8 @@ def retrieve_tool_histories(receiver, delete_tools, _check_database, _sanity_che
     if _delete_check_file:
         thread_print(Fore.RED + 'Deleting repository check file')
         thread_print("To delete the check file, type 'DELETE' and press enter")
-        if input() == 'DELETE':
-            if os.path.exists('repository_check_file'):
-                os.remove('repository_check_file')
+        if os.path.exists('repository_check_file'):
+            os.remove('repository_check_file')
 
     initialize_parsed_repositories()
 
@@ -318,11 +319,12 @@ def retrieve_tool_histories(receiver, delete_tools, _check_database, _sanity_che
     sentinel_thread.start()
     saver_thread.start()
 
-    while not interrupted.is_set():
+    while True:
         futures = []
         repositories = wrapper.get_random_processed_repositories(1000)
 
         if stop_if_no_sample and len(repositories) == 0:
+            thread_print(Fore.GREEN + 'No more repositories to process')
             interrupted.set()
             all_threads_done.set()
             break
@@ -338,19 +340,21 @@ def retrieve_tool_histories(receiver, delete_tools, _check_database, _sanity_che
 
             thread_print(f'Waiting for {len(futures)} futures to complete')
 
-            for future in futures:
-                future.result()
+            wait(futures, return_when=ALL_COMPLETED)
 
             executor.shutdown()
         except KeyboardInterrupt:
+            thread_print(Fore.YELLOW + 'Keyboard interrupt received')
             executor.shutdown()
+            all_threads_done.set()
+            break
 
         all_threads_done.set()
 
     thread_print('Waiting for saver thread to finish')
-    saver_thread.join(10)
+    saver_thread.join()
 
     sys.exit(0)
 
-# if __name__ == '__main__':
-#     main()
+if __name__ == '__main__':
+    retrieve_tool_histories(None, False, False, False, False, False, False)
