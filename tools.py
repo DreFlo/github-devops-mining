@@ -3,6 +3,7 @@ import requests
 import json
 import time
 import base64
+from concurrent.futures import ThreadPoolExecutor
 from re import search, IGNORECASE
 
 from github_api_wrappers import *
@@ -111,25 +112,34 @@ def check_tools(reponame,repos_code,extension):
 
     return tools
 
-def check_tools_read_file(reponame,repos_code,tree,branch,extension,max_count=20):
+def check_tools_read_file(reponame,repos_code,tree,branch,extension):
 
     tools = set()
-    count = 0
 
-    for f in tree['tree']:
 
-        count += 1
-        
-        if count > max_count: return tools
+    ###with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+    ###results = pool.map(tester, urls)~
 
-        if len(tools) == len(repos_code):
-            return tools
 
-        if checkExtension(extension,f["path"]):
-            rawf = get_raw_file(reponame,branch,f["path"])
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+
+        tasks = []
+
+        for f in tree['tree']:
+
+            if checkExtension(extension,f["path"]):
+                t = executor.submit(get_raw_file,reponame,branch,f["path"])
+                tasks.append(t)
+
+        for t in tasks:
+            
+            
+            rawf = t.result()
+
             for r in repos_code:
-                if check_file_contents([r] ,rawf):
-                    tools.add(r[0])
+                    
+                    if check_file_contents([r] ,rawf):
+                        tools.add(r[0])
 
     return tools
 
@@ -164,7 +174,7 @@ def find_repo_trees_tools(repo_full_name, default_branch, trees):
         tools = set()
 
         if not 'tree' in tree: 
-            tools_history.append({'date' : tree['date'], 'sha' : tree['sha'], 'tools' : list(tools)})
+            tools_history.append({'date' : tree['date'], 'sha' : tree['sha'], 'tools' : list(tools), 'warning' : 'No tree found'})
             continue
 
         for f in tree['tree']:

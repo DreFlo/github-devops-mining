@@ -214,11 +214,16 @@ def get_repo_snapshots(commits : list, commit_interval : timedelta) -> list:
 
     return repo_snapshots
 
-def get_snapshot_commits_retrieve_all_commits(full_name : str, commit_interval : timedelta = timedelta(days=90)) -> list:
-    commits = get_repo_commits(full_name=full_name)
-    return get_repo_snapshots(commits=commits, commit_interval=commit_interval)
+def get_snapshot_commits_retrieve_all_commits(full_name : str, last_tree_sha : str, commit_interval : timedelta = timedelta(days=90)) -> list:
+    all_commits = get_repo_commits(full_name=full_name)
+    commits_with_cutoff = []
+    for commit in all_commits:
+        commits_with_cutoff.append(commit)
+        if commit['sha'] == last_tree_sha:
+            break
+    return get_repo_snapshots(commits=commits_with_cutoff, commit_interval=commit_interval)
 
-def get_snapshot_commits_query_timedelta(full_name : str, first_commit : dict, updated_at : datetime, commit_interval : timedelta = timedelta(days=90)) -> list:
+def get_snapshot_commits_query_timedelta(full_name : str, first_commit : dict, updated_at : datetime, last_tree_sha : str, commit_interval : timedelta = timedelta(days=90)) -> list:
     # Get first commit
     result = [first_commit]
 
@@ -257,6 +262,16 @@ def get_snapshot_commits_query_timedelta(full_name : str, first_commit : dict, u
                 day_window = timedelta(days=day_window_days*2)
             continue
 
+        last_tree_found = False
+        for commit in commits:
+            if commit['sha'] == last_tree_sha:
+                result.append(commit)
+                last_tree_found = True
+                break
+
+        if last_tree_found:
+            break            
+
         commits.sort(key=get_commit_timestamp)
 
         if result[-1]['sha'] == commits[-1]['sha']:
@@ -271,15 +286,9 @@ def get_snapshot_commits_query_timedelta(full_name : str, first_commit : dict, u
         ignore_day_window = False
         day_window = timedelta(days=3)
 
-    # Get last commit
-    commits = get_repo_commits(full_name=full_name, per_page=1, max_pages=1)
-
-    if result[-1]['sha'] != commits[0]['sha']:
-        result.append(commits[0])
-
     return result
 
-def get_snapshot_commits_optimized(full_name : str, commit_count : int, first_commit : dict, updated_at : datetime, commit_interval : timedelta = timedelta(days=90)) -> list:
+def get_snapshot_commits_optimized(full_name : str, commit_count : int, first_commit : dict, updated_at : datetime, last_tree_sha : str, commit_interval : timedelta = timedelta(days=90)) -> list:
     first_commit_timestamp = get_commit_timestamp(first_commit)
     
     if (updated_at - first_commit_timestamp).days == 0:
@@ -294,9 +303,9 @@ def get_snapshot_commits_optimized(full_name : str, commit_count : int, first_co
     # If, on average, there are less than 200 commits per interval, use the retrieve all commits method
     # This is to optimize the number of requests made
     if commits_per_interval <= 200 or commit_count <= 100: # Github API limit is 100 commits per page, number is double to account for sparse commits since it is an average
-        return get_snapshot_commits_retrieve_all_commits(full_name=full_name, commit_interval=commit_interval)
+        return get_snapshot_commits_retrieve_all_commits(full_name=full_name, last_tree_sha=last_tree_sha, commit_interval=commit_interval)
     else:
-        return get_snapshot_commits_query_timedelta(full_name=full_name, first_commit=first_commit, updated_at=updated_at, commit_interval=commit_interval)
+        return get_snapshot_commits_query_timedelta(full_name=full_name, first_commit=first_commit, updated_at=updated_at, last_tree_sha=last_tree_sha, commit_interval=commit_interval)
 
 
 def get_repo_contents(full_name : str, path : str = '', sha : str = None) -> list:

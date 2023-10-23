@@ -1,6 +1,13 @@
 import os, sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import mongodb_wrappers
+from dotenv import load_dotenv
+
+load_dotenv()
+
+mongodb_wrappers.URI = os.getenv('MONGODB_URI')
+
+print(mongodb_wrappers.URI)
 
 def get_repo_tool_histories(filter : dict = {}) -> list:
     return list(mongodb_wrappers.MongoDBWrapper().get_repo_tool_histories(filter))
@@ -57,6 +64,7 @@ def get_next_quarter_key(key : str) -> str:
 # Mutates the aggregated_histories dict
 def fill_in_blanks_in_aggregated_histories_keys(aggregated_histories : dict) -> dict:
     sorted_keys = sorted(list(aggregated_histories.keys()))
+    print(sorted_keys)
     current_key, next_key, index = sorted_keys[0], sorted_keys[1], 1
     while True:
         if get_next_quarter_key(current_key) != next_key:
@@ -102,7 +110,7 @@ def create_csv_from_aggregate_histories(repos : list, aggregated_histories : dic
 
 
 tool_histories = get_repo_tool_histories()
-
+print(len(tool_histories))
 filled_histories = fill_blanks_with_none(tool_histories)
 flattened_histories = flatten_repo_tool_histories(filled_histories)
 aggregated_histories = aggregate_flattened_repo_tool_histories_by_quarter(flattened_histories)
