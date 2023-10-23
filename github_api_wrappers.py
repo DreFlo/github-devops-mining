@@ -8,17 +8,11 @@ import json
 import os
 import base64
 
-from dotenv import load_dotenv
-
 from requests.structures import CaseInsensitiveDict
 from urllib.parse import parse_qs, urlparse
 from colorama import Fore, Style
 
 from utils import thread_print
-
-
-# Load Github Token
-load_dotenv()
 
 TOKEN = os.getenv('GITHUB_TOKEN')
 

@@ -4,9 +4,6 @@ import pprint
 from pymongo.mongo_client import MongoClient
 from pymongo.server_api import ServerApi
 from pymongo.cursor import Cursor
-from dotenv import load_dotenv
-
-load_dotenv()
 
 URI = os.getenv("MONGODB_URI")
 

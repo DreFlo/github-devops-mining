@@ -5,9 +5,11 @@ import time
 import sys
 import atexit
 import tree_collection_loader
+import os
 
 from datetime import datetime
 from colorama import Fore, Style
+from dotenv import load_dotenv
 
 
 parser = argparse.ArgumentParser(description='Load trees from GitHub repositories into MongoDB')
@@ -18,8 +20,14 @@ parser.add_argument('--test-github-api-limits', action='store_true', help='Test 
 parser.add_argument('--sanity-check', action='store_true', help='Perform a sanity check on the database and exit')
 parser.add_argument('--interrupt-at', type=str, default=None, help='Interrupt the program at the specified time, format: YYYY-MM-DDTHH:MM')
 parser.add_argument('--stop-if-no-sample', action='store_true', help='Stop program if no sample of repos can be retrieved')
+parser.add_argument('--env-file', type=str, default=None, help='Path to the .env file')
 
 subproc = None
+
+if parser.parse_args().env_file:
+    load_dotenv(dotenv_path=parser.parse_args().env_file)
+else:
+    load_dotenv()
 
 def kill_sub_proc_at_exit():
     global subproc
@@ -67,7 +75,7 @@ def main():
 
     print(args)
 
-    subproc = multiprocessing.Process(target=tree_collection_loader.retrieve_tool_histories, args=args, daemon=True, )
+    subproc = multiprocessing.Process(target=tree_collection_loader.retrieve_tool_histories, args=args, daemon=True)
     subproc.start()
 
     while True:

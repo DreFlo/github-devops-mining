@@ -4,6 +4,7 @@ Needs ```.env``` file to work. See ```.env.example``` for variables.
 
 ```bash
 usage: main.py [-h] [--delete-tools] [--check-database] [--delete-check-file] [--test-github-api-limits] [--sanity-check] [--interrupt-at INTERRUPT_AT] [--stop-if-no-sample]
+               [--env-file ENV_FILE]
 
 Load trees from GitHub repositories into MongoDB
 
@@ -18,4 +19,5 @@ options:
   --interrupt-at INTERRUPT_AT
                         Interrupt the program at the specified time, format: YYYY-MM-DDTHH:MM
   --stop-if-no-sample   Stop program if no sample of repos can be retrieved
+  --env-file ENV_FILE   Path to the .env file
 ```

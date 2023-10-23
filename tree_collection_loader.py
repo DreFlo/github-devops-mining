@@ -271,6 +271,7 @@ def save_check_file_every_5_seconds() -> None:
 
 def retrieve_tool_histories(receiver, delete_tools, _check_database, _sanity_check, _test_github_api_limits, _delete_check_file, stop_if_no_sample):
     global interrupt_at
+
     wrapper = MongoDBWrapper()
 
     # if parser.parse_args().interrupt_at is not None:
