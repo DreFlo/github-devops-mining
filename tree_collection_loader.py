@@ -22,6 +22,7 @@ parser = argparse.ArgumentParser(description='Load trees from GitHub repositorie
 interrupt_number = 0
 interrupted = threading.Event()
 all_threads_done = threading.Event()
+saver_thread_killed = threading.Event()
 
 check_file_lock = threading.Lock()
 
@@ -30,6 +31,8 @@ parsed_repositories = {}
 futures = []
 
 CHECK_FILE_PATH = ''
+
+saver_thread = None
 
 def initialize_parsed_repositories():
     if os.path.exists(CHECK_FILE_PATH):
@@ -198,7 +201,7 @@ def get_repository_trees(repository : dict, wrapper : MongoDBWrapper) -> None:
 
 
 def set_interrupted_flag_and_cancel_futures(connection: multiprocessing.connection.Connection) -> None:
-    global interrupted, interrupt_number, futures
+    global interrupted, interrupt_number, futures, saver_thread
     if connection is None:
         return
     _ = connection.recv()
@@ -206,7 +209,14 @@ def set_interrupted_flag_and_cancel_futures(connection: multiprocessing.connecti
     interrupted.set()
     for future in futures:
         future.cancel()
-    return
+    _ = connection.recv()
+    thread_print(Fore.RED + f'Interrupt received (time: {datetime.now()}), saving check file and exiting' + Style.RESET_ALL)
+    saver_thread_killed.set()
+    time.sleep(5)
+    save_check_file()
+    for future in futures:
+        future.terminate()
+    os._exit(0)
 
 def check_database() -> None:
     wrapper = MongoDBWrapper()
@@ -263,7 +273,7 @@ def save_check_file() -> None:
 
 def save_check_file_every_5_seconds() -> None:
     thread_print(Fore.YELLOW + 'Saving check file every 5 seconds')
-    while True:
+    while not saver_thread_killed.is_set():
         save_check_file()
         if interrupted.is_set() and all_threads_done.is_set():
             thread_print(Fore.GREEN + 'All threads done, exiting safely')
@@ -272,7 +282,7 @@ def save_check_file_every_5_seconds() -> None:
     return
 
 def retrieve_tool_histories(receiver, delete_tools, _check_database, _sanity_check, _test_github_api_limits, _delete_check_file, stop_if_no_sample, _check_file_path):
-    global interrupt_at, CHECK_FILE_PATH
+    global interrupt_at, CHECK_FILE_PATH, saver_thread
     CHECK_FILE_PATH = _check_file_path
 
     wrapper = MongoDBWrapper()

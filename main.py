@@ -46,8 +46,12 @@ def send_message_to_subproc_and_wait(sender : multiprocessing.connection.Connect
             print("Subproc finished")
             subproc = None
         except KeyboardInterrupt:
-            print("Interrupted")
+            print("Interrupted again")
+            sender.send("stop")
+            while subproc.is_alive():
+                time.sleep(1)
             subproc = None
+            print("Subproc finished")
             sys.exit(0)
 
 def main():
