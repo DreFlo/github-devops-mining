@@ -21,6 +21,7 @@ parser.add_argument('--sanity-check', action='store_true', help='Perform a sanit
 parser.add_argument('--interrupt-at', type=str, default=None, help='Interrupt the program at the specified time, format: YYYY-MM-DDTHH:MM')
 parser.add_argument('--stop-if-no-sample', action='store_true', help='Stop program if no sample of repos can be retrieved')
 parser.add_argument('--env-file', type=str, default=None, help='Path to the .env file')
+parser.add_argument('--check-file', type=str, default='repository_check_file', help='Path to the check file')
 
 subproc = None
 
@@ -71,7 +72,7 @@ def main():
 
     sender, receiver = multiprocessing.Pipe()
 
-    args = (receiver, delete_tools, parsed_args.check_database, parsed_args.sanity_check, parsed_args.test_github_api_limits, parsed_args.delete_check_file, parsed_args.stop_if_no_sample)
+    args = (receiver, delete_tools, parsed_args.check_database, parsed_args.sanity_check, parsed_args.test_github_api_limits, parsed_args.delete_check_file, parsed_args.stop_if_no_sample, parsed_args.check_file)
 
     print(args)
 

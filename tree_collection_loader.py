@@ -29,9 +29,11 @@ parsed_repositories = {}
 
 futures = []
 
+CHECK_FILE_PATH = ''
+
 def initialize_parsed_repositories():
-    if os.path.exists('repository_check_file'):
-        with open('repository_check_file', 'r') as check_file:
+    if os.path.exists(CHECK_FILE_PATH):
+        with open(CHECK_FILE_PATH, 'r') as check_file:
             for line in check_file:
                 check = json.loads(line)
                 parsed_repositories[check['repo_full_name']] = {'trees' : check['trees'], 'time' : check['time']}
@@ -209,7 +211,7 @@ def set_interrupted_flag_and_cancel_futures(connection: multiprocessing.connecti
 def check_database() -> None:
     wrapper = MongoDBWrapper()
     error = False
-    with open('repository_check_file', 'r') as check_file:
+    with open(CHECK_FILE_PATH, 'r') as check_file:
         for line in check_file:
             check = json.loads(line)
             repo_full_name = check['repo_full_name']
@@ -225,7 +227,7 @@ def check_database() -> None:
 
 def sanity_check() -> None:
     wrapper = MongoDBWrapper()
-    with open('repository_check_file', 'r') as check_file:
+    with open(CHECK_FILE_PATH, 'r') as check_file:
         for line in check_file:
             check = json.loads(line)
             repo_full_name = check['repo_full_name']
@@ -253,7 +255,7 @@ def raise_sigint() -> None:
 
 def save_check_file() -> None:
     global parsed_repositories, check_file_lock
-    with open('repository_check_file', 'w') as check_file:
+    with open(CHECK_FILE_PATH, 'w') as check_file:
         check_file_lock.acquire()
         for repo_full_name, repo_info in parsed_repositories.items():
             check_file.write(json.dumps({'repo_full_name' : repo_full_name, 'trees' : repo_info['trees'], 'time' : repo_info['time']}) + '\n')
@@ -269,8 +271,9 @@ def save_check_file_every_5_seconds() -> None:
         time.sleep(5)
     return
 
-def retrieve_tool_histories(receiver, delete_tools, _check_database, _sanity_check, _test_github_api_limits, _delete_check_file, stop_if_no_sample):
-    global interrupt_at
+def retrieve_tool_histories(receiver, delete_tools, _check_database, _sanity_check, _test_github_api_limits, _delete_check_file, stop_if_no_sample, _check_file_path):
+    global interrupt_at, CHECK_FILE_PATH
+    CHECK_FILE_PATH = _check_file_path
 
     wrapper = MongoDBWrapper()
 
@@ -305,8 +308,8 @@ def retrieve_tool_histories(receiver, delete_tools, _check_database, _sanity_che
     if _delete_check_file:
         thread_print(Fore.RED + 'Deleting repository check file')
         thread_print("To delete the check file, type 'DELETE' and press enter")
-        if os.path.exists('repository_check_file'):
-            os.remove('repository_check_file')
+        if os.path.exists(CHECK_FILE_PATH):
+            os.remove(CHECK_FILE_PATH)
 
     initialize_parsed_repositories()
 

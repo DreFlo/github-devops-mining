@@ -1,5 +1,5 @@
 **.env
 __pycache__/
-repository_check_file
+**_check_file
 *.json
 *.csv
