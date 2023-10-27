@@ -232,18 +232,19 @@ def get_snapshot_commits_query_timedelta(full_name : str, first_commit : dict, u
     ignore_day_window = False
 
     while get_commit_timestamp(result[-1]) + commit_interval < updated_at:
+        snapshot_time_stamp = get_commit_timestamp(result[-1]) if get_commit_timestamp(result[-1]) > datetime(2012, 1, 1) else datetime(2012, 1, 1)
         if extended_search_tries > 100:
             thread_print(f'Extended search tries exceeded for {full_name}')
             break
         elif day_window > commit_interval:
             ignore_day_window = True
             extended_search_tries += 1
-            since = (prev_until if prev_until is not None else (get_commit_timestamp(result[-1]) + commit_interval)).isoformat()
-            until = (prev_until + commit_interval * 8 if prev_until is not None else (get_commit_timestamp(result[-1]) + commit_interval * 8)).isoformat()
+            since = (prev_until if prev_until is not None else (snapshot_time_stamp + commit_interval)).isoformat()
+            until = (prev_until + commit_interval * 8 if prev_until is not None else (snapshot_time_stamp + commit_interval * 8)).isoformat()
             prev_until = dateutil.parser.isoparse(until)       
         else:
-            since = (get_commit_timestamp(result[-1]) + commit_interval - day_window).isoformat()
-            until = (get_commit_timestamp(result[-1]) + commit_interval + day_window).isoformat()
+            since = (snapshot_time_stamp + commit_interval - day_window).isoformat()
+            until = (snapshot_time_stamp + commit_interval + day_window).isoformat()
 
         if datetime.fromisoformat(since) > datetime.now(tz=timezone.utc):
             break

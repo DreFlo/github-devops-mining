@@ -22,4 +22,5 @@ total_time_hours = total_time / 3600
 total_time_hours_parallel = total_time_hours / (5 * 16)
 
 print('avg time per repo (s):', avg_time)
+print('repos parsed: ', len(parsed_repositories))
 print('total hours (5 proc * 16 threads)', total_time_hours_parallel)

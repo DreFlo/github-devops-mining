@@ -25,13 +25,13 @@ class MongoDBWrapper:
     def get_repositories(self, filter : dict = {}, projection : dict = None) -> Cursor:
         return self.db["random"].find(filter, projection)
     
-    def get_repo_tool_histories(self, filter : dict = {}, projection : dict = None) -> Cursor:
+    def get_repo_tool_histories(self, filter : dict = {}, projection : dict = None) -> list:
         return list(self.db["repo_tools_history"].find(filter, projection)) + list(self.db_2["repo_tools_history"].find(filter, projection))
     
     def add_repo_tools(self, repo_tools : dict):
         self.db_2["repo_tools_history"].insert_one(repo_tools)
         # TODO Uncomment this line when we are ready to mark the repo as processed
-        # self.db["random"].update_one({"full_name" : repo_tools["repo_full_name"]}, {"retrieved_repo_histories" : True})
+        # self.db["random"].update_one({"full_name" : repo_tools["repo_full_name"]}, {"$set{"retrieved_repo_histories" : True})
 
     def count_repo_histories(self):
         return self.db["repo_tools_history"].count_documents({})

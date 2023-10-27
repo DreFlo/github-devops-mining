@@ -4,13 +4,23 @@ load_dotenv('../.env')
 import os, sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import mongodb_wrappers
-
-mongodb_wrappers.URI = os.getenv('MONGODB_URI')
-
-print(mongodb_wrappers.URI)
+import datetime
+from datetime import timezone
 
 def get_repo_tool_histories(filter : dict = {}) -> list:
-    return list(mongodb_wrappers.MongoDBWrapper().get_repo_tool_histories(filter))
+    return mongodb_wrappers.MongoDBWrapper().get_repo_tool_histories(filter)
+
+def remove_nonsense_dates(histories : list):
+    clean_histories = []
+    for history in histories:
+        new_history = {'repo_full_name' : history['repo_full_name'], 'snapshots' : []}
+        for snapshot in history['snapshots']:
+            if snapshot['date'] < datetime.datetime(2005, 4, 7) or snapshot['date'] > datetime.datetime(2023, 10, 24):
+                continue
+            new_history['snapshots'].append(snapshot)
+        clean_histories.append(new_history)
+    return clean_histories
+
 
 def fill_blanks_with_none(histories : list) -> list:
     filled_histories = []
@@ -110,8 +120,8 @@ def create_csv_from_aggregate_histories(repos : list, aggregated_histories : dic
 
 
 tool_histories = get_repo_tool_histories()
-print(len(tool_histories))
-filled_histories = fill_blanks_with_none(tool_histories)
+clean_histories = remove_nonsense_dates(tool_histories)
+filled_histories = fill_blanks_with_none(clean_histories)
 flattened_histories = flatten_repo_tool_histories(filled_histories)
 aggregated_histories = aggregate_flattened_repo_tool_histories_by_quarter(flattened_histories)
 aggregated_histories = fill_in_blanks_in_aggregated_histories_keys(aggregated_histories)

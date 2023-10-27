@@ -44,6 +44,16 @@ while True:
                 print(row[i])
             tools_by_quarter[i][tool] += 1
 
+popular_tools_by_quarter = {}
+
+for i in tools_by_quarter:
+    tool = tools_by_quarter[i]
+    popular_tool_sets_list = sorted([(key, tool[key]) for key in tool if key != ''], key=lambda a : a[1], reverse=True)
+    popular_tool_sets = {}
+    for tool_set, value in popular_tool_sets_list[:5]:
+        popular_tool_sets[tool_set] = value
+    popular_tools_by_quarter[i] = popular_tool_sets
+
 if '' in all_tools:
     all_tools.remove('')
 
@@ -62,11 +72,13 @@ for row in rows:
     for i in range(since_index, until_index - 1):
         if row[i] == row[i + 1] and row[i] != '':
             for tool in row[i].split(','):
-                if tool == 'None' and i + 2 == until_index:
-                    print(row[0])
+                if tool not in popular_tools_by_quarter[i] or tool not in popular_tools_by_quarter[i+1]:
+                    continue 
                 transitions[i-since_index][(tool, tool)] += 1
         else:
             for (tool1, tool2) in tool_combinations:
+                if tool1 not in popular_tools_by_quarter[i] or tool2 not in popular_tools_by_quarter[i+1]:
+                    continue 
                 # Changes tool (stop cycles if repo has multiple tools)
                 if tool1 in row[i] and tool2 in row[i + 1]:
                     if tool2 == 'None' and i + 2 == until_index:
