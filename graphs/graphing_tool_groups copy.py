@@ -62,6 +62,8 @@ def find_most_popular_tools_by_period(tools_by_period : dict, top : int) -> dict
         for tool_set_string, value in pop_tool_sets_list[:top]:
             pop_tools[tool_set_string] = value
 
+        pop_tools['Other'] = None
+
         pop_tools_by_period[period] = pop_tools
 
     return pop_tools_by_period
@@ -91,6 +93,9 @@ def get_transitions(rows : list, pop_tool_sets : dict, filter_tools_sets : set |
 
             first_it = period - 1 not in pop_tool_sets
 
+            if row[period] == '':
+                continue
+
             tool_set_1 = set(row[period].split(','))
             tool_set_2 = set(row[period + 1].split(','))
 
@@ -102,15 +107,17 @@ def get_transitions(rows : list, pop_tool_sets : dict, filter_tools_sets : set |
             if (period, period + 1) not in transitions:
                 transitions[(period, period + 1)] = {}
 
+            relevant = True
+
             # Check if includes filter tools or has come from filter tools
-            if first_it and filter_tools_sets.isdisjoint(tool_set_union):
-                continue
-            elif not first_it and filter_tools_sets.isdisjoint(tool_set_union) and tool_set_1_string not in [second for (_, second) in transitions[(period - 1, period)]]:
-                    continue
+            if filter_tools_sets and first_it and filter_tools_sets.isdisjoint(tool_set_union):
+                relevant = False
+            elif filter_tools_sets and not first_it and filter_tools_sets.isdisjoint(tool_set_union) and tool_set_1_string not in [second for (_, second) in transitions[(period - 1, period)]]:
+                relevant = False
 
             # Check pop
-            if tool_set_1_string not in pop_tool_sets[period] or tool_set_2_string not in pop_tool_sets[period  + 1]:
-                continue
+            tool_set_1_string = tool_set_1_string if relevant and tool_set_1_string in pop_tool_sets[period] else 'Other'
+            tool_set_2_string = tool_set_2_string if relevant and tool_set_2_string in pop_tool_sets[period  + 1] else 'Other'
 
             if (tool_set_1_string, tool_set_2_string) not in transitions[(period, period + 1)]:
                 transitions[(period, period + 1)][(tool_set_1_string, tool_set_2_string)] = 0
@@ -182,7 +189,7 @@ pop_tools_by_period = find_most_popular_tools_by_period(tools_by_period, 10)
 all_tool_sets = get_all_tool_sets(pop_tools_by_period)
 tool_set_to_index = get_tool_set_to_index_map(all_tool_sets)
 tool_set_colors = get_tool_set_colors(all_tool_sets)
-transitions = get_transitions(rows, pop_tools_by_period, set(['Travis']))
+transitions = get_transitions(rows, pop_tools_by_period)
 node_dict = get_node_dict(pop_tools_by_period, tool_set_colors, tool_set_to_index)
 fig_dict = get_fig_dict(pop_tools_by_period, transitions)
 
