@@ -126,10 +126,10 @@ def find_tools_and_store_in_database(trees_to_process, wrapper : MongoDBWrapper)
             continue
 
     if tries == 5:
-        thread_print(Fore.RED + 'Failed to add tools')
+        thread_print(Fore.RED + f'Failed to add tools ({datetime.now()})' + Style.RESET_ALL)
         return False
     else:
-        thread_print(Fore.GREEN + 'Tools added successfully')
+        thread_print(Fore.GREEN + f'Tools added successfully ({datetime.now()})' + Style.RESET_ALL)
         return True
 
 def get_repository_trees(repository : dict, wrapper : MongoDBWrapper) -> None:

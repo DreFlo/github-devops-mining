@@ -32,12 +32,12 @@ while True:
         break
     rows.append(row)
     for i in range(since_index, until_index):
-        tool_set = '+'.join(sorted(row[i].split(',')))
+        tool_set_string = '+'.join(sorted(row[i].split(',')))
         if not i in tools_by_quarter:
             tools_by_quarter[i] = {}
-        if not tool_set in tools_by_quarter[i]:
-            tools_by_quarter[i][tool_set] = 0
-        tools_by_quarter[i][tool_set] += 1
+        if not tool_set_string in tools_by_quarter[i]:
+            tools_by_quarter[i][tool_set_string] = 0
+        tools_by_quarter[i][tool_set_string] += 1
 
 print("Aggregated tools by quarter")
 
@@ -47,8 +47,8 @@ for i in tools_by_quarter:
     tool_sets = tools_by_quarter[i]
     popular_tool_sets_list = sorted([(key, tool_sets[key]) for key in tool_sets if key != ''], key=lambda a : a[1], reverse=True)
     popular_tool_sets = {}
-    for tool_set, value in popular_tool_sets_list[:10]:
-        popular_tool_sets[tool_set] = value
+    for tool_set_string, value in popular_tool_sets_list[:10]:
+        popular_tool_sets[tool_set_string] = value
     popular_tools_by_quarter[i] = popular_tool_sets
 
 print("Found most popular tools by quarter")
@@ -66,34 +66,35 @@ all_tool_sets_colors = [f'rgba({random.randint(0, 255)},{random.randint(0, 255)}
 
 print("Calculated combinations")
 
+filter_tool = 'Travis'
+
 for row in rows:
     for i in range(since_index, until_index - 1):
-        if row[i] == row[i + 1] and row[i] != '':
-            tool_set = '+'.join(sorted(row[i].split(',')))
-            if tool_set not in popular_tools_by_quarter[i] or tool_set not in popular_tools_by_quarter[i + 1]:
-                continue
-            if tool_set == 'None' and i + 2 == until_index:
-                print(row[0])
-            transitions[i-since_index][(tool_set, tool_set)] += 1
-        else:
-            for (tool1, tool2) in tool_set_combinations:
-                if tool1 not in popular_tools_by_quarter[i] or tool2 not in popular_tools_by_quarter[i + 1]:
-                    continue
-                # Changes tool (stop cycles if repo has multiple tools)
-                if tool1 == '+'.join(sorted(row[i].split(','))) and tool2 == '+'.join(sorted(row[i + 1].split(','))):
-                    if tool2 == 'None' and i + 2 == until_index:
-                        print(row[0])
-                    transitions[i-since_index][(tool1, tool2)] += 1
+        tool_set_1 = row[i].split(',')
+        tool_set_2 = row[i + 1].split(',')
+
+        tool_set_1_string = '+'.join(sorted(tool_set_1))
+        tool_set_2_string = '+'.join(sorted(tool_set_2))
+
+        if i == since_index and filter_tool not in tool_set_1 + tool_set_2:
+            continue
+        elif filter_tool not in tool_set_1 + tool_set_2 and tool_set_1_string not in [second for (_, second) in transitions[i - since_index - 1].keys()]:
+            continue
+
+        if tool_set_1_string not in popular_tools_by_quarter[i] or tool_set_2_string not in popular_tools_by_quarter[i + 1]:
+            continue
+
+        transitions[i-since_index][(tool_set_1_string, tool_set_2_string)] += 1
 
 print("Added transitions")
 
 all_tool_sets_cycle = []
 all_tool_sets_colors_cycle = []
 
-node_customomdata = [(tool, i, header[i], tools_by_quarter[i][tool] if tool in tools_by_quarter else 0) for i in range(since_index, until_index) for (tool, _) in tool_set_combinations]
-node_customomdata.sort(key=lambda a : tool_set_to_index[a[0]] + a[1] * len(tool_set_combinations))
+node_customomdata = [header[i] for i in range(since_index, until_index) for (_, _) in tool_set_combinations]
 
-for i in range(len(transitions.keys()) * 2 * len(tool_set_combinations)):
+
+for i in range((len(transitions.keys()) + 1) * len(tool_set_combinations)):
     all_tool_sets_cycle.extend(all_tool_sets)
     all_tool_sets_colors_cycle.extend(all_tool_sets_colors)
 
@@ -113,7 +114,7 @@ node_dict = dict(
     label = all_tool_sets_cycle,
     color = node_colors,
     customdata = node_customomdata,
-    hovertemplate = "%{label}<br>Quarter: %{customdata}<br>Value: %{value}<extra></extra>"
+    hovertemplate = "<br>Quarter: %{customdata}<br>Value: %{value}<extra></extra>"
 )
 
 fig_dict = dict(

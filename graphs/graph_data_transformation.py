@@ -64,6 +64,22 @@ def aggregate_flattened_repo_tool_histories_by_quarter(flattened_histories : lis
             aggregated_histories[key][history['repo_full_name']] = set(history['tools'])
     return aggregated_histories
 
+def aggregate_flattened_repo_tool_histories_by_semester(flattened_histories : list) -> list:
+    aggregated_histories = {}
+    for history in flattened_histories:
+        # Get quarter from datetime.datetime object
+        half = (history['date'].month - 1) // 6 + 1
+        key = f'{history["date"].year}H{half}'
+        if key not in aggregated_histories:
+            aggregated_histories[key] = {}
+        if history['repo_full_name'] in aggregated_histories[key]:
+            aggregated_histories[key][history['repo_full_name']] |= set(history['tools'])
+            if len(aggregated_histories[key][history['repo_full_name']]) != 1 and 'None' in aggregated_histories[key][history['repo_full_name']]:
+                aggregated_histories[key][history['repo_full_name']].remove('None')
+        else:
+            aggregated_histories[key][history['repo_full_name']] = set(history['tools'])
+    return aggregated_histories
+
 def get_next_quarter_key(key : str) -> str:
     year, quarter = key.split('Q')
     quarter = int(quarter)
@@ -71,15 +87,22 @@ def get_next_quarter_key(key : str) -> str:
         return f'{int(year) + 1}Q1'
     return f'{year}Q{quarter + 1}'
 
+def get_next_semester_key(key : str) -> str:
+    year, sem = key.split('H')
+    sem = int(sem)
+    if sem == 2:
+        return f'{int(year) + 1}H1'
+    return f'{year}H{sem + 1}'
+
 # Mutates the aggregated_histories dict
-def fill_in_blanks_in_aggregated_histories_keys(aggregated_histories : dict) -> dict:
+def fill_in_blanks_in_aggregated_histories_keys(aggregated_histories : dict, get_next_key) -> dict:
     sorted_keys = sorted(list(aggregated_histories.keys()))
     print(sorted_keys)
     current_key, next_key, index = sorted_keys[0], sorted_keys[1], 1
     while True:
-        if get_next_quarter_key(current_key) != next_key:
-            aggregated_histories[get_next_quarter_key(current_key)] = {}
-            current_key = get_next_quarter_key(current_key)
+        if get_next_key(current_key) != next_key:
+            aggregated_histories[get_next_key(current_key)] = {}
+            current_key = get_next_key(current_key)
         else:
             current_key = sorted_keys[index]
             index += 1
@@ -123,10 +146,11 @@ tool_histories = get_repo_tool_histories()
 clean_histories = remove_nonsense_dates(tool_histories)
 filled_histories = fill_blanks_with_none(clean_histories)
 flattened_histories = flatten_repo_tool_histories(filled_histories)
-aggregated_histories = aggregate_flattened_repo_tool_histories_by_quarter(flattened_histories)
-aggregated_histories = fill_in_blanks_in_aggregated_histories_keys(aggregated_histories)
+# aggregated_histories = aggregate_flattened_repo_tool_histories_by_quarter(flattened_histories)
+aggregated_histories = aggregate_flattened_repo_tool_histories_by_semester(flattened_histories)
+aggregated_histories = fill_in_blanks_in_aggregated_histories_keys(aggregated_histories, get_next_semester_key)
 aggregated_histories = fill_in_blanks_in_aggregated_histories_values(aggregated_histories)
 
 repos = [history['repo_full_name'] for history in tool_histories]
 
-create_csv_from_aggregate_histories(repos, aggregated_histories, 'repo_tools_history.csv')
+create_csv_from_aggregate_histories(repos, aggregated_histories, 'repo_tools_history_sem.csv')
