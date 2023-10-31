@@ -351,9 +351,13 @@ def retrieve_tool_histories(receiver, delete_tools, _check_database, _sanity_che
 
             thread_print(f'Waiting for {len(futures)} futures to complete')
 
-            wait(futures, return_when=ALL_COMPLETED)
+            wait(futures, return_when=ALL_COMPLETED, timeout=(5 * 3600)) # Timeout 5h
 
-            executor.shutdown()
+            for future in futures:
+                if not future.done():
+                    future.terminate()
+
+            executor.shutdown(cancel_futures=True)
         except KeyboardInterrupt:
             thread_print(Fore.YELLOW + 'Keyboard interrupt received')
             executor.shutdown()

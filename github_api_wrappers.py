@@ -240,10 +240,10 @@ def get_snapshot_commits_query_timedelta(full_name : str, first_commit : dict, u
             ignore_day_window = True
             extended_search_tries += 1
             since = (prev_until if prev_until is not None else (snapshot_time_stamp + commit_interval)).isoformat()
-            until = (prev_until + commit_interval * 8 if prev_until is not None else (snapshot_time_stamp + commit_interval * 8)).isoformat()
+            until = (prev_until + commit_interval if prev_until is not None else (snapshot_time_stamp + commit_interval * 2)).isoformat()
             prev_until = dateutil.parser.isoparse(until)       
         else:
-            since = (snapshot_time_stamp + commit_interval - day_window).isoformat()
+            since = (snapshot_time_stamp + commit_interval - timedelta(days=7)).isoformat()
             until = (snapshot_time_stamp + commit_interval + day_window).isoformat()
 
         if datetime.fromisoformat(since) > datetime.now(tz=timezone.utc):
@@ -271,6 +271,7 @@ def get_snapshot_commits_query_timedelta(full_name : str, first_commit : dict, u
         extended_search_tries = 0
         ignore_day_window = False
         day_window = timedelta(days=3)
+        prev_until = None
 
     # Get last commit
     commits = get_repo_commits(full_name=full_name, per_page=1, max_pages=1)
@@ -432,3 +433,14 @@ def get_raw_file(repo,branch,path):
     result = send_get_request_wait_for_rate_limit(url=f"https://raw.githubusercontent.com/{repo}/{branch}/{path}", headers=headers)
 
     return str(result.content)
+
+def get_commit(repo, sha):
+    headers = CaseInsensitiveDict()
+    headers['Accept'] = 'application/vnd.github+json'
+    headers['Authorization'] = f'Bearer {TOKEN}'
+
+    url = f'https://api.github.com/repos/{repo}/commits/{sha}'
+
+    response = send_get_request_wait_for_rate_limit(url=url, headers=headers)
+
+    return response.json()
