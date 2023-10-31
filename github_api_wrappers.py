@@ -216,6 +216,7 @@ def get_repo_snapshots(commits : list, commit_interval : timedelta) -> list:
 
 def get_snapshot_commits_retrieve_all_commits(full_name : str, commit_interval : timedelta = timedelta(days=90)) -> list:
     commits = get_repo_commits(full_name=full_name)
+    print(f'{len(commits)} commits retrieved')
     return get_repo_snapshots(commits=commits, commit_interval=commit_interval)
 
 def get_snapshot_commits_query_timedelta(full_name : str, first_commit : dict, updated_at : datetime, commit_interval : timedelta = timedelta(days=90)) -> list:
@@ -232,7 +233,7 @@ def get_snapshot_commits_query_timedelta(full_name : str, first_commit : dict, u
     ignore_day_window = False
 
     while get_commit_timestamp(result[-1]) + commit_interval < updated_at:
-        snapshot_time_stamp = get_commit_timestamp(result[-1]) if get_commit_timestamp(result[-1]) > datetime(2012, 1, 1) else datetime(2012, 1, 1)
+        snapshot_time_stamp = get_commit_timestamp(result[-1]) if get_commit_timestamp(result[-1]) > datetime(2012, 1, 1, tzinfo=timezone.utc) else datetime(2012, 1, 1, tzinfo=timezone.utc)
         if extended_search_tries > 100:
             thread_print(f'Extended search tries exceeded for {full_name}')
             break

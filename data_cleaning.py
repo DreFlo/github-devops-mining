@@ -72,6 +72,9 @@ def check_tools_dates(tool_history, _ : MongoDBWrapper):
         if not error:
             clean_history['snapshots'].append(snapshot)
 
+    thread_print('Cleaned tool dates')
+    thread_print(json.dumps(clean_history, indent=2))
+
     return clean_history
 
 def retry_no_tree_founds(tool_history, _ : MongoDBWrapper):
@@ -85,6 +88,9 @@ def retry_no_tree_founds(tool_history, _ : MongoDBWrapper):
             new_snapshot = find_repo_trees_tools(tool_history['repo_full_name'], '', [tree])[0]
         clean_history['snapshots'].append(new_snapshot)
 
+    thread_print('Cleaned no trees')
+    thread_print(json.dumps(clean_history, indent=2))
+
     return clean_history
 
 
@@ -93,9 +99,15 @@ def clean_snapshot_times(tool_history, wrapper : MongoDBWrapper):
 
     last_snapshot = wrapper.db['random'].find_one({'full_name' : tool_history['repo_full_name']}, {'tree', 'tools_used'})
 
+    thread_print(f'last snapshot {last_snapshot}')
+
     last_snapshot_sha = last_snapshot['tree'].split('/')[-1]
 
+    commit = get_commit(tool_history['repo_full_name'], last_snapshot_sha)
+
     last_snapshot_date = dateutil.parser.isoparse(get_commit(tool_history['repo_full_name'], last_snapshot_sha)['commit']['author']['date'])
+
+    thread_print(f'last snapshot date {last_snapshot_date}')
 
     for snapshot in sorted(tool_history['snapshots'], key=lambda snap:snap['date']):
         if snapshot['date'] < datetime(2012, 1, 1):
@@ -109,22 +121,33 @@ def clean_snapshot_times(tool_history, wrapper : MongoDBWrapper):
     if last_snapshot_date < datetime(2023, 10, 31):
         clean_history['snapshots'].append({'date' : last_snapshot_date, 'sha' : last_snapshot_sha, 'tools' : last_snapshot['tools_used']})
 
+    thread_print('Cleaned times')
+    thread_print(json.dumps(clean_history, indent=2))
+
     return clean_history
 
 def apply_function_chain(obj, wrapper : MongoDBWrapper, funcs):
     res = obj
     for func in funcs:
+        thread_print(func.__name__)
         res = func(res, wrapper)
         if res is None:
             return None
     return res
 
 def clean_tool_history(tool_history, wrapper : MongoDBWrapper):
+    thread_print(f'Cleaning {tool_history["repo_full_name"]}')
     clean_functions = [clean_snapshot_times, retry_no_tree_founds, check_tools_dates]
-    cleaned_tool_history = apply_function_chain(tool_history, clean_functions)
+    thread_print('Here')
+    cleaned_tool_history = apply_function_chain(tool_history, wrapper, clean_functions)
+    thread_print('Here2')
     if cleaned_tool_history and not wrapper.has_been_cleaned(tool_history['repo_full_name']):
+        print(json.dumps(tool_history, indent=2))
         #wrapper.add_clean_repo_history(clean_history=cleaned_tool_history)
         print(json.dumps(cleaned_tool_history, indent=2))
+        thread_print(f'Added cleaned history to database')
+    else:
+        thread_print(f'Discarding {tool_history["repo_full_name"]}')
 
 def set_interrupted_flag_and_cancel_futures(connection: multiprocessing.connection.Connection) -> None:
     global interrupted, interrupt_number, futures
@@ -147,24 +170,22 @@ def main(receiver):
     sentinel_thread = threading.Thread(target=set_interrupted_flag_and_cancel_futures, args=[receiver], daemon=True)
     sentinel_thread.start()
 
-    histories = wrapper.get_random_processed_repositories(10)
-
-    print(len(histories))
+    get_api_rate_limits()
 
     while True:
         futures = []
-        repositories = wrapper.get_random_processed_repositories(1000)
+        histories = wrapper.get_random_uncleaned_histories(1)
 
-        if len(repositories) == 0:
+        if len(histories) == 0:
             thread_print(Fore.GREEN + 'No more repositories to process')
             interrupted.set()
             break
 
         try:
-            executor = ThreadPoolExecutor(max_workers=16)
+            executor = ThreadPoolExecutor(max_workers=1)
 
-            for repository in repositories:
-                f = executor.submit(get_repository_trees, repository, wrapper)
+            for history in histories:
+                f = executor.submit(clean_tool_history, history, wrapper)
                 futures.append(f)
 
             thread_print(f'Waiting for {len(futures)} futures to complete')
@@ -173,18 +194,17 @@ def main(receiver):
 
             for future in futures:
                 if not future.done():
+                    thread_print('terminating future')
                     future.terminate()
 
             executor.shutdown(cancel_futures=True)
+
+            break
         except KeyboardInterrupt:
             thread_print(Fore.YELLOW + 'Keyboard interrupt received')
             executor.shutdown()
             break
 
-    for history in histories:
-        print(history)
-        print()
-        clean_tool_history(history, wrapper)
 
 if __name__ == "__main__":
     main()

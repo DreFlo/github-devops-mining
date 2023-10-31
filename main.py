@@ -5,6 +5,7 @@ import time
 import sys
 import atexit
 import tree_collection_loader
+import data_cleaning
 import os
 
 from datetime import datetime
@@ -22,6 +23,7 @@ parser.add_argument('--interrupt-at', type=str, default=None, help='Interrupt th
 parser.add_argument('--stop-if-no-sample', action='store_true', help='Stop program if no sample of repos can be retrieved')
 parser.add_argument('--env-file', type=str, default=None, help='Path to the .env file')
 parser.add_argument('--check-file', type=str, default='repository_check_file', help='Path to the check file')
+parser.add_argument('--clean-data', action='store_true', help='Clen data')
 
 subproc = None
 
@@ -75,12 +77,16 @@ def main():
     parsed_args = parser.parse_args()
 
     sender, receiver = multiprocessing.Pipe()
+    
+    if parser.parse_args().clean_data:
+        subproc = multiprocessing.Process(target=data_cleaning.main, args=[receiver], daemon=True)
+    else:
+        args = (receiver, delete_tools, parsed_args.check_database, parsed_args.sanity_check, parsed_args.test_github_api_limits, parsed_args.delete_check_file, parsed_args.stop_if_no_sample, parsed_args.check_file)
 
-    args = (receiver, delete_tools, parsed_args.check_database, parsed_args.sanity_check, parsed_args.test_github_api_limits, parsed_args.delete_check_file, parsed_args.stop_if_no_sample, parsed_args.check_file)
+        print(args)
 
-    print(args)
+        subproc = multiprocessing.Process(target=tree_collection_loader.retrieve_tool_histories, args=args, daemon=True)
 
-    subproc = multiprocessing.Process(target=tree_collection_loader.retrieve_tool_histories, args=args, daemon=True)
     subproc.start()
 
     while True:

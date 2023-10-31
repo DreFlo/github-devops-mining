@@ -167,6 +167,8 @@ def get_repository_trees(repository : dict, wrapper : MongoDBWrapper) -> None:
         first_commit,
         dateutil.parser.parse(repository['updated_at']), 
         timedelta(days=90))
+    
+    thread_print(f'Number of snapshot commits: {len(repo_snapshot_commits)}')
 
     if repo_snapshot_commits is None:
         thread_print(Fore.YELLOW + f'Skipping repository {repo_full_name}, could not get first commit')
@@ -286,6 +288,8 @@ def retrieve_tool_histories(receiver, delete_tools, _check_database, _sanity_che
     CHECK_FILE_PATH = _check_file_path
 
     wrapper = MongoDBWrapper()
+
+    get_api_rate_limits()
 
     # if parser.parse_args().interrupt_at is not None:
     #     interrupt_at = datetime.strptime(parser.parse_args().interrupt_at, '%Y-%m-%dT%H:%M')
