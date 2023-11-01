@@ -209,7 +209,9 @@ def get_repo_snapshots(commits : list, commit_interval : timedelta) -> list:
     repo_snapshots = []
 
     for i in range(len(commits)):
-        if i == 0 or i == len(commits) - 1:
+        if get_commit_timestamp(commits[i]) < datetime(2012, 1, 1, tzinfo=timezone.utc):
+            continue
+        elif i == 0 or i == len(commits) - 1:
             repo_snapshots.append(commits[i])
         elif get_commit_timestamp(commits[i]) - get_commit_timestamp(repo_snapshots[-1]) >= commit_interval:
             repo_snapshots.append(commits[i])
@@ -229,22 +231,17 @@ def get_snapshot_commits_query_timedelta(full_name : str, first_commit : dict, u
     # Get commits in intervals
     extended_search_tries = 0
 
-    prev_until = None
+    prev_until = get_commit_timestamp(result[-1]) if get_commit_timestamp(result[-1]) > datetime(2012, 1, 1, tzinfo=timezone.utc) - commit_interval else datetime(2011, 10, 10, tzinfo=timezone.utc) - commit_interval
 
-    while get_commit_timestamp(result[-1]) + commit_interval < updated_at:
-        snapshot_time_stamp = get_commit_timestamp(result[-1]) if get_commit_timestamp(result[-1]) > datetime(2012, 1, 1, tzinfo=timezone.utc) - commit_interval else datetime(2011, 10, 10, tzinfo=timezone.utc) - commit_interval
-        
+    while prev_until <= updated_at:        
         if extended_search_tries > 100:
             thread_print(f'Extended search tries exceeded for {full_name}')
             break
 
         extended_search_tries += 1
-        since = (prev_until if prev_until is not None else (snapshot_time_stamp)).isoformat()
-        until = (prev_until + commit_interval if prev_until is not None else (snapshot_time_stamp + commit_interval)).isoformat()
-        prev_until = dateutil.parser.isoparse(until)
-
-        if datetime.fromisoformat(since) > datetime.now(tz=timezone.utc):
-            break
+        since = (prev_until).isoformat()
+        until = (prev_until + commit_interval).isoformat()
+        prev_until += commit_interval
 
         commits = get_repo_commits(full_name=full_name, since=since, until=until, max_pages=1, per_page=1)
 
@@ -252,21 +249,10 @@ def get_snapshot_commits_query_timedelta(full_name : str, first_commit : dict, u
         if len(commits) == 0:
             continue
 
-        commits.sort(key=get_commit_timestamp)
-
         if result[-1]['sha'] == commits[-1]['sha']:
             continue
 
         result.append(commits[-1])
-
-        extended_search_tries = 0
-        prev_until = None
-
-    # Get last commit
-    commits = get_repo_commits(full_name=full_name, per_page=1, max_pages=1)
-
-    if result[-1]['sha'] != commits[0]['sha']:
-        result.append(commits[0])
 
     return result
 
