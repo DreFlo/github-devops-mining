@@ -7,6 +7,7 @@ import threading
 import signal
 import argparse
 import bson
+import traceback
 
 from github_api_wrappers import *
 from mongodb_wrappers import *
@@ -135,70 +136,74 @@ def find_tools_and_store_in_database(trees_to_process, wrapper : MongoDBWrapper)
 def get_repository_trees(repository : dict, wrapper : MongoDBWrapper) -> None:
     global interrupted, parsed_repositories, check_file_lock
 
-    if interrupted.is_set():
-        return
+    try:
+        if interrupted.is_set():
+            return
 
-    if repository['full_name'] in parsed_repositories:
-        thread_print(Fore.YELLOW + f'Skipping repository {repository["full_name"]}, already parsed')
-        return
+        if repository['full_name'] in parsed_repositories:
+            thread_print(Fore.YELLOW + f'Skipping repository {repository["full_name"]}, already parsed')
+            return
 
-    # Check if has already been processed
-    if wrapper.has_been_processed(repository['full_name']):
-        thread_print(Fore.YELLOW + f'Skipping repository {repository["full_name"]}, already processed')
-        return
-    
-    repo_full_name = repository['full_name']
+        # Check if has already been processed
+        if wrapper.has_been_processed(repository['full_name']):
+            thread_print(Fore.YELLOW + f'Skipping repository {repository["full_name"]}, already processed')
+            return
+        
+        repo_full_name = repository['full_name']
 
-    thread_print(f'Processing repository: {repo_full_name}')
+        thread_print(f'Processing repository: {repo_full_name}')
 
-    start = time.time()
+        start = time.time()
 
-    commit_count, first_commit = get_commit_count_and_first_commit(repo_full_name=repo_full_name)#get_commits_count(repository['full_name']), get_first_commit(repository['full_name'])
+        commit_count, first_commit = get_commit_count_and_first_commit(repo_full_name=repo_full_name)#get_commits_count(repository['full_name']), get_first_commit(repository['full_name'])
 
-    thread_print(f'Commit count: {commit_count}')
+        thread_print(f'Commit count: {commit_count}')
 
-    if commit_count == 0 or first_commit == None:
-        thread_print(Fore.YELLOW + f'Skipping repository {repo_full_name}, could not get first commit or commit_count')
-        return
+        if commit_count == 0 or first_commit == None:
+            thread_print(Fore.YELLOW + f'Skipping repository {repo_full_name}, could not get first commit or commit_count')
+            return
 
-    repo_snapshot_commits = get_snapshot_commits_optimized(
-        repo_full_name, 
-        commit_count,
-        first_commit,
-        dateutil.parser.parse(repository['updated_at']), 
-        timedelta(days=90))
-    
-    thread_print(f'Number of snapshot commits: {len(repo_snapshot_commits)}')
+        repo_snapshot_commits = get_snapshot_commits_optimized(
+            repo_full_name, 
+            commit_count,
+            first_commit,
+            dateutil.parser.parse(repository['updated_at']), 
+            timedelta(days=90))
+        
+        thread_print(f'Number of snapshot commits: {len(repo_snapshot_commits)}')
 
-    if repo_snapshot_commits is None:
-        thread_print(Fore.YELLOW + f'Skipping repository {repo_full_name}, could not get first commit')
-        return
+        if repo_snapshot_commits is None:
+            thread_print(Fore.YELLOW + f'Skipping repository {repo_full_name}, could not get first commit')
+            return
 
-    repo_snapshot_trees = get_repo_trees(full_name=repo_full_name, commits=repo_snapshot_commits)
+        repo_snapshot_trees = get_repo_trees(full_name=repo_full_name, commits=repo_snapshot_commits)
 
-    for i in range(len(repo_snapshot_commits)):
-        repo_snapshot_trees[i]['date'] = dateutil.parser.isoparse(repo_snapshot_commits[i]['commit']['author']['date'])
-        repo_snapshot_trees[i]['sha'] = repo_snapshot_commits[i]['sha']
-        repo_snapshot_trees[i]['repo_full_name'] = repo_full_name
-        if 'url' in repo_snapshot_trees[i]:
-            del repo_snapshot_trees[i]['url']
+        for i in range(len(repo_snapshot_commits)):
+            repo_snapshot_trees[i]['date'] = dateutil.parser.isoparse(repo_snapshot_commits[i]['commit']['author']['date'])
+            repo_snapshot_trees[i]['sha'] = repo_snapshot_commits[i]['sha']
+            repo_snapshot_trees[i]['repo_full_name'] = repo_full_name
+            if 'url' in repo_snapshot_trees[i]:
+                del repo_snapshot_trees[i]['url']
 
-    if len(repo_snapshot_trees) == 0:
-        thread_print(f'No trees found for {repo_full_name}')
-        return
+        if len(repo_snapshot_trees) == 0:
+            thread_print(f'No trees found for {repo_full_name}')
+            return
 
-    stored_trees = find_tools_and_store_in_database({'full_name' : repo_full_name, 'default_branch' : repository['default_branch'], 'trees' : repo_snapshot_trees}, wrapper)
+        stored_trees = find_tools_and_store_in_database({'full_name' : repo_full_name, 'default_branch' : repository['default_branch'], 'trees' : repo_snapshot_trees}, wrapper)
 
-    stop = time.time()
+        stop = time.time()
 
-    if (stored_trees):
-        check_file_lock.acquire()
+        if (stored_trees):
+            check_file_lock.acquire()
 
-        parsed_repositories[repo_full_name] = {'trees' : len(repo_snapshot_trees), 'time' : stop - start}
+            parsed_repositories[repo_full_name] = {'trees' : len(repo_snapshot_trees), 'time' : stop - start}
 
-        check_file_lock.release()
-    else:
-        thread_print(Fore.RED + f'Failed to store trees for {repo_full_name}')
+            check_file_lock.release()
+        else:
+            thread_print(Fore.RED + f'Failed to store trees for {repo_full_name}')
+    except Exception as e:
+        traceback.print_exc()
+        thread_print(Fore.RED + f'Failed to store trees for {repo_full_name}' + Style.RESET_ALL)
 
 
 
@@ -361,7 +366,6 @@ def retrieve_tool_histories(receiver, delete_tools, _check_database, _sanity_che
                 if not future.done():
                     future.terminate()
 
-            executor.shutdown(cancel_futures=True)
         except KeyboardInterrupt:
             thread_print(Fore.YELLOW + 'Keyboard interrupt received')
             executor.shutdown()

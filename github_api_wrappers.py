@@ -138,6 +138,8 @@ def get_repo_commits(full_name : str, per_page : str = 100, max_pages : str = sy
     # Go through pages to get all commits
     while params['page'] <= max_pages:
         response = send_get_request_wait_for_rate_limit(url=url, params=params, headers=headers)
+        if type(response.json()) != list:
+            return get_repo_commits(full_name=full_name, per_page=per_page, max_pages=max_pages, since=since, until=until)
         commits = commits + response.json()
         params['page'] += 1
         # If number of commits retrieved is lesser than page limit, the current page is the last one
@@ -216,7 +218,6 @@ def get_repo_snapshots(commits : list, commit_interval : timedelta) -> list:
 
 def get_snapshot_commits_retrieve_all_commits(full_name : str, commit_interval : timedelta = timedelta(days=90)) -> list:
     commits = get_repo_commits(full_name=full_name)
-    print(f'{len(commits)} commits retrieved')
     return get_repo_snapshots(commits=commits, commit_interval=commit_interval)
 
 def get_snapshot_commits_query_timedelta(full_name : str, first_commit : dict, updated_at : datetime, commit_interval : timedelta = timedelta(days=90)) -> list:
@@ -233,7 +234,7 @@ def get_snapshot_commits_query_timedelta(full_name : str, first_commit : dict, u
     ignore_day_window = False
 
     while get_commit_timestamp(result[-1]) + commit_interval < updated_at:
-        snapshot_time_stamp = get_commit_timestamp(result[-1]) if get_commit_timestamp(result[-1]) > datetime(2012, 1, 1, tzinfo=timezone.utc) else datetime(2012, 1, 1, tzinfo=timezone.utc)
+        snapshot_time_stamp = get_commit_timestamp(result[-1]) if get_commit_timestamp(result[-1]) > datetime(2011, 10, 10, tzinfo=timezone.utc) else datetime(2011, 10, 10, tzinfo=timezone.utc)
         if extended_search_tries > 100:
             thread_print(f'Extended search tries exceeded for {full_name}')
             break
@@ -250,7 +251,7 @@ def get_snapshot_commits_query_timedelta(full_name : str, first_commit : dict, u
         if datetime.fromisoformat(since) > datetime.now(tz=timezone.utc):
             break
 
-        commits = get_repo_commits(full_name=full_name, since=since, until=until, max_pages=1)
+        commits = get_repo_commits(full_name=full_name, since=since, until=until, max_pages=1, per_page=1)
 
         # If no commits are retrieved, increase the day window and try again
         if len(commits) == 0:
@@ -392,7 +393,7 @@ def get_commit_count_and_first_commit(repo_full_name : str) -> (int, json):
         rel_last_link_url_page_arg = rel_last_link_url_args["page"][0]
         commits_count = int(rel_last_link_url_page_arg)
     else:
-        thread_print(r.content())
+        thread_print(r)
         return (0, None)
 
     if commits_count == 0:
