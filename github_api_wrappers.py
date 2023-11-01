@@ -227,26 +227,21 @@ def get_snapshot_commits_query_timedelta(full_name : str, first_commit : dict, u
     commits = []
 
     # Get commits in intervals
-    day_window = timedelta(days=7)
     extended_search_tries = 0
 
     prev_until = None
-    ignore_day_window = False
 
     while get_commit_timestamp(result[-1]) + commit_interval < updated_at:
-        snapshot_time_stamp = get_commit_timestamp(result[-1]) if get_commit_timestamp(result[-1]) > datetime(2011, 10, 10, tzinfo=timezone.utc) else datetime(2011, 10, 10, tzinfo=timezone.utc)
+        snapshot_time_stamp = get_commit_timestamp(result[-1]) if get_commit_timestamp(result[-1]) > datetime(2012, 1, 1, tzinfo=timezone.utc) - commit_interval else datetime(2011, 10, 10, tzinfo=timezone.utc) - commit_interval
+        
         if extended_search_tries > 100:
             thread_print(f'Extended search tries exceeded for {full_name}')
             break
-        elif day_window > commit_interval:
-            ignore_day_window = True
-            extended_search_tries += 1
-            since = (prev_until if prev_until is not None else (snapshot_time_stamp + commit_interval)).isoformat()
-            until = (prev_until + commit_interval if prev_until is not None else (snapshot_time_stamp + commit_interval * 2)).isoformat()
-            prev_until = dateutil.parser.isoparse(until)       
-        else:
-            since = (snapshot_time_stamp + commit_interval - timedelta(days=7)).isoformat()
-            until = (snapshot_time_stamp + commit_interval + day_window).isoformat()
+
+        extended_search_tries += 1
+        since = (prev_until if prev_until is not None else (snapshot_time_stamp)).isoformat()
+        until = (prev_until + commit_interval if prev_until is not None else (snapshot_time_stamp + commit_interval)).isoformat()
+        prev_until = dateutil.parser.isoparse(until)
 
         if datetime.fromisoformat(since) > datetime.now(tz=timezone.utc):
             break
@@ -255,24 +250,16 @@ def get_snapshot_commits_query_timedelta(full_name : str, first_commit : dict, u
 
         # If no commits are retrieved, increase the day window and try again
         if len(commits) == 0:
-            if not ignore_day_window:
-                day_window_days = day_window.days
-                day_window = timedelta(days=day_window_days*2)
             continue
 
         commits.sort(key=get_commit_timestamp)
 
         if result[-1]['sha'] == commits[-1]['sha']:
-            if not ignore_day_window:
-                day_window_days = day_window.days
-                day_window = timedelta(days=day_window_days*2)
             continue
 
         result.append(commits[-1])
 
         extended_search_tries = 0
-        ignore_day_window = False
-        day_window = timedelta(days=3)
         prev_until = None
 
     # Get last commit
