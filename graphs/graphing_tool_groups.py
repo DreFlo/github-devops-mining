@@ -190,11 +190,11 @@ def get_fig_dict(pop_tool_sets, transitions, tool_set_colors):
     )
 
 rows, tools_by_period = read_rows_and_count_tools_by_quarter(data_csvreader, since_index, until_index)
-pop_tools_by_period = find_most_popular_tools_by_period(tools_by_period, 5)
+pop_tools_by_period = find_most_popular_tools_by_period(tools_by_period, 10)
 all_tool_sets = get_all_tool_sets(pop_tools_by_period)
 tool_set_to_index = get_tool_set_to_index_map(all_tool_sets)
 tool_set_colors = get_tool_set_colors(all_tool_sets)
-transitions = get_transitions(rows, pop_tools_by_period)
+transitions = get_transitions(rows, pop_tools_by_period, set(['Travis']))
 node_dict = get_node_dict(pop_tools_by_period, tool_set_colors, tool_set_to_index)
 fig_dict = get_fig_dict(pop_tools_by_period, transitions, tool_set_colors)
 

@@ -1,15 +1,15 @@
 import json
-from dotenv import load_dotenv
-load_dotenv('../.env')
+# from dotenv import load_dotenv
+# load_dotenv('../.env')
 
-import os, sys
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-import mongodb_wrappers
-import datetime
+# import os, sys
+# sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+# import mongodb_wrappers
+# import datetime
 
-wrapper = mongodb_wrappers.MongoDBWrapper()
+# wrapper = mongodb_wrappers.MongoDBWrapper()
 
-repo_tool_histories = wrapper.get_repo_tool_histories()
+repo_tool_histories = json.loads('Repositories.repo_tools_history.json')#wrapper.get_repo_tool_histories()
 
 number_of_tools_by_year = {}
 

@@ -54,7 +54,7 @@ class MongoDBWrapper:
     def get_random_processed_repositories(self,size):
         mycol = self.db["random"]
 
-        match = {"$match":  {"$and" : [{'tools_used' : { "$exists": True, "$ne" : []}}, {"created_at" : { "$lt" : "2020-07-16T00:00:00Z"}}, {"retrieved_repo_histories" : {"$ne" : True}}]}}
+        match = {"$match":  {"$and" : [{'tools_used' : { "$exists": True, "$ne" : []}}, {"created_at" : { "$lt" : "2023-07-16T00:00:00Z"}}, {"retrieved_repo_histories" : {"$ne" : True}}]}}
         sample = {"$sample": {"size": size}} 
 
         return list(mycol.aggregate([match, sample]))

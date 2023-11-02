@@ -211,7 +211,7 @@ def get_repo_snapshots(commits : list, commit_interval : timedelta) -> list:
     for i in range(len(commits)):
         if get_commit_timestamp(commits[i]) < datetime(2012, 1, 1, tzinfo=timezone.utc):
             continue
-        elif i == 0 or i == len(commits) - 1:
+        elif len(repo_snapshots) == 0 or i == len(commits) - 1:
             repo_snapshots.append(commits[i])
         elif get_commit_timestamp(commits[i]) - get_commit_timestamp(repo_snapshots[-1]) >= commit_interval:
             repo_snapshots.append(commits[i])
