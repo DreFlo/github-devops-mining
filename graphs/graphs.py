@@ -71,7 +71,7 @@ def get_number_of_repos_with_n_tools(tool_histories_for_year : dict) -> set:
 
     return number_of_repos_grouped_by_number_of_tools
 
-def get_repos_with_n_tools_graphs(tool_histories_by_year : dict) -> dict:
+def get_repos_with_n_tools_histograms(tool_histories_by_year : dict) -> dict:
     repos_with_n_tools = {}
 
     for year in tool_histories_by_year:
@@ -137,6 +137,72 @@ def get_repos_with_n_tools_graphs(tool_histories_by_year : dict) -> dict:
         
     return graphs, percentage_graphs
 
+def get_repos_with_n_tools_stacked_bar(tool_histories_by_year : dict) -> dict:
+    repos_with_n_tools = {}
+    repost_with_n_tools_percentage = {}
+
+    for year in tool_histories_by_year:
+        repos_with_n_tools[year] = get_number_of_repos_with_n_tools(tool_histories_for_year=tool_histories_by_year[year])
+
+        repost_with_n_tools_percentage[year] = {}
+
+        for number_of_tools in repos_with_n_tools[year]:
+            repost_with_n_tools_percentage[year][number_of_tools] = repos_with_n_tools[year][number_of_tools] / len(tool_histories_by_year[year]) * 100
+
+    graph = {
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "data": {
+            "values" : [{'year' : year, 'number_of_tools' : number_of_tools, 'number_of_repos' : repos_with_n_tools[year][number_of_tools]} for year in repos_with_n_tools for number_of_tools in repos_with_n_tools[year]]
+        },
+        "title" : f"Number of repositories with n tools by year",
+        "mark": "bar",
+        "encoding": {
+            "x": {
+                "field": "year",
+                "type": "ordinal",
+                "title" : "Year"
+            },
+            "y": {
+                "field": "number_of_repos",
+                "type": "quantitative",
+                "title" : "Number of repos"
+            },
+            "color": {
+                "field": "number_of_tools",
+                "type": "nominal",
+                "title": "Number of tools"
+            }
+        }
+    }
+
+    percentage_graph = {
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "data": {
+            "values" : [{'year' : year, 'number_of_tools' : number_of_tools, 'percentage' : repost_with_n_tools_percentage[year][number_of_tools]} for year in repost_with_n_tools_percentage for number_of_tools in repost_with_n_tools_percentage[year]]
+        },
+        "title" : f"Percentage of repositories with n tools by year",
+        "mark": "bar",
+        "encoding": {
+            "x": {
+                "field": "year",
+                "type": "ordinal",
+                "title" : "Year"
+            },
+            "y": {
+                "field": "percentage",
+                "type": "quantitative",
+                "title" : "Percentage"
+            },
+            "color": {
+                "field": "number_of_tools",
+                "type": "nominal",
+                "title": "Number of tools"
+            }
+        }
+    }
+
+    return graph, percentage_graph
+
 def get_tool_counts(tool_histories_for_year : dict) -> dict:
     tool_counts = {}
 
@@ -201,7 +267,7 @@ def get_tool_counts_stacked_bar_chart(tool_counts_by_year : dict) -> dict:
                 "type": "quantitative",
                 "title": "Number of repositories"
             },
-                "color": {
+            "color": {
                 "field": "tool",
                 "type": "nominal",
                 "title": "Tool"
@@ -215,7 +281,7 @@ print('Grouping tool histories by year')
 tools_by_year = group_tool_histories_by_year(tool_histories=tool_histories, start=2012, end=2023)
 
 print('Making n tools histograms')
-n_tools_histograms, percentage_n_tools_histograms = get_repos_with_n_tools_graphs(tool_histories_by_year=tools_by_year)
+n_tools_histograms, percentage_n_tools_histograms = get_repos_with_n_tools_histograms(tool_histories_by_year=tools_by_year)
 
 for year in n_tools_histograms:
     with open(f'number_of_tools_histograms/{year}.json', 'w') as file:
@@ -224,6 +290,14 @@ for year in n_tools_histograms:
 for year in percentage_n_tools_histograms:
     with open(f'number_of_tools_histograms/{year}_percentages.json', 'w') as file:
         file.write(json.dumps(percentage_n_tools_histograms[year], indent=2))
+
+n_tools_stacked_bar, n_tools_percentage_stacked_bar = get_repos_with_n_tools_stacked_bar(tool_histories_by_year=tools_by_year)
+
+with open(f'n_tools_stacked_bar_chart.json', 'w') as file:
+    file.write(json.dumps(n_tools_stacked_bar, indent=2))
+
+with open(f'n_tools_percentages_stacked_bar_chart.json', 'w') as file:
+    file.write(json.dumps(n_tools_percentage_stacked_bar, indent=2))
 
 print('Getting tool counts')
 tool_counts_by_year = {year : get_tool_counts(tool_histories_for_year=tools_by_year[year]) for year in tools_by_year}
@@ -235,5 +309,5 @@ tool_counts_by_year_group_other = get_tool_counts_by_year_group_other(tool_count
 print('Making stacked bar chart')
 stacked_bar_chart = get_tool_counts_stacked_bar_chart(tool_counts_by_year=tool_counts_by_year_group_other)
 
-with open(f'stacked_bar_chart.json', 'w') as file:
+with open(f'tool_counts_stacked_bar_chart.json', 'w') as file:
     file.write(json.dumps(stacked_bar_chart, indent=2))

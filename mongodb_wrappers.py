@@ -61,7 +61,7 @@ class MongoDBWrapper:
     
     def add_clean_repo_history(self, clean_history):
         self.db_3['clean_tool_histories'].insert_one(clean_history)
-        #self.db_2['repo_tools_history'].update_one({'repo_full_name' : clean_history['repo_full_name']}, {'$set' : {'cleaned' : True}})
+        self.db_2['repo_tools_history'].update_one({'repo_full_name' : clean_history['repo_full_name']}, {'$set' : {'cleaned' : True}})
     
     def get_random_uncleaned_histories(self, size):
         mycol = self.db_2["repo_tools_history"]

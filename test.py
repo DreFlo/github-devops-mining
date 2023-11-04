@@ -8,100 +8,48 @@ from datetime import datetime
 
 wrapper = mongodb_wrappers.MongoDBWrapper()
 
-count = 0
+repo_list = list(wrapper.get_repositories({'retrieved_repo_histories' : True}, {'full_name' : 1, 'tree' : 1, 'tools_used' : 1, '_id' : 0}))
 
-repo_tool_histories_list = wrapper.get_repo_tool_histories()
+print(len(repo_list))
 
-# reprocess_repo_names = set()
+# repo_last_sha_map = {repo['full_name'] : (repo['tree'].split('/')[-1], repo['tools_used']) for repo in repo_list}
 
-# for repo in repo_tool_histories_list:
-#     for i in range(len(repo['snapshots']) - 1):
-#         if repo['snapshots'][i + 1]['date'] - repo['snapshots'][i]['date'] > timedelta(days=2 * 365):
-#             reprocess_repo_names.add(repo['repo_full_name'])
+# cleaned_histories_last_snapshots = list(wrapper.db_3['clean_tool_histories'].aggregate([{'$project' : {'repo_full_name' : 1, 'lastSnapshot' : { '$arrayElemAt' : ['$snapshots', -1]}}}, {'$match' : {'lastSnapshot.tools' : []}}]))
+
+# count = 0
+
+# with open('file.txt', 'w') as file:
+#     for repo in cleaned_histories_last_snapshots:
+#         if repo['lastSnapshot']['sha'] != repo_last_sha_map[repo['repo_full_name']][0]:
+#             file.write(f'Mismatching last snapshots in {repo["repo_full_name"]}\n')
+#             file.write(f'Hugo\'s sha: {repo_last_sha_map[repo["repo_full_name"]][0]}\n')
+#             file.write(f'Hugo\' tools: {repo_last_sha_map[repo["repo_full_name"]][1]}\n')
+#             file.write(f'Cleaned last sha: {repo["lastSnapshot"]["sha"]}\n')
+#             file.write(f'Cleaned last tools: {repo["lastSnapshot"]["tools"]}\n\n')
+#             count += 1
+
+
+# circleci = 0
+# circleci_githubactions = 0
+# circleci_no_githubactions = 0
+
+# for repo in repo_list:
+#     tools_used = set(repo['tools_used'])
+#     if 'CircleCI' in tools_used:
+#         circleci += 1
+#         if 'GitHubActions' in tools_used:
+#             circleci_githubactions += 1
+#             print(repo['full_name'])
 #             break
+#         else:
+#             # print(repo['full_name'])
+#             circleci_no_githubactions += 1
 
+# print(f'CircleCI: {circleci}')
+# print(f'CircleCI with GitHubActions: {circleci_githubactions}')
+# print(f'CircleCI without GitHubActions: {circleci_no_githubactions}')
 
-# print(f'{len(reprocess_repo_names)} repos to reprocess')
-
-# with open('repo_to_reprocess.json', 'w') as file:
-#     file.write(json.dumps(list(reprocess_repo_names), indent=2))    
-
-# repos_to_reprocess = None
-
-# with open('repo_to_reprocess.json', 'r') as file:
-#     repos_to_reprocess = json.loads(file.read())
-
-# print(f'{len(repos_to_reprocess)} repos to reprocess')
-
-# for repo_name in repos_to_reprocess:
-#     wrapper.db_2['repo_tools_history'].delete_one({'repo_full_name' : repo_name})
-#     wrapper.db['random'].update_one({"full_name" : repo_name}, {"$set" : {"retrieved_repo_histories" : False}})
-
-# print('Done')
-
-tool_launch_dates = {
-        "Agola" : datetime(2019, 7, 15),
-        "AppVeyor" : datetime(2011, 1, 1),
-        "ArgoCD" : datetime(2018, 3, 13),
-        "Bytebase" : datetime(2021, 7, 9),
-        "Cartographer" : datetime(2021, 9, 21),
-        "CircleCI" : datetime(2011, 1, 1),
-        "Cloud 66 Skycap" : datetime(2017, 12, 7),
-        "Cloudbees Codeship" : datetime(2011, 1, 1),
-        "Devtron" : datetime(2021, 4, 7),
-        "Flipt" : datetime(2019, 2, 16),
-        "GitLab" : datetime(2012, 10, 22),
-        "Google Cloud Build" : datetime(2016, 1, 14),
-        "Helmwave" : datetime(2020, 10, 2),
-        "Travis" : datetime(2011, 1, 1),
-        "Jenkins" : datetime(2011, 2, 3),
-        "JenkinsX" : datetime(2018, 3, 19),
-        "Keptn" : datetime(2021, 5, 21),
-        "Liquibase" : datetime(2006, 1, 1),
-        "Mergify" : datetime(2018, 8, 1),
-        "OctopusDeploy" : datetime(2011, 10 ,7),
-        "OpenKruise" : datetime(2019, 7, 17),
-        "OpsMx" : datetime(2017, 9, 1),
-        "Ortelius" : datetime(2023, 2, 13),
-        "Screwdriver" : datetime(2017, 1, 12),
-        "Semaphore" : datetime(2012, 1, 1),
-        "TeamCity" : datetime(2006, 1, 1),
-        "werf" : datetime(2017, 8, 22),
-        "Woodpecker CI" : datetime(2019, 4, 6),
-        "Codefresh" : datetime(2014, 1, 1),
-        "XL Deploy" : datetime(2008, 1, 1),
-        "Drone" : datetime(2014, 1, 1),
-        "Flagger" : datetime(2018, 10, 7),
-        "Harness.io" : datetime(2016, 1, 1),
-        "Flux" : datetime(2016, 10, 28),
-        "GoCD" : datetime(2007, 1, 1),
-        "Concourse" : datetime(2015, 1, 27),
-        "Kubernetes" : datetime(2014, 10, 15),
-        "GitHubActions" : datetime(2018, 10, 16),
-        "AWS CodePipeline" : datetime(2015, 7, 9),
-    }
-
-bad_repos = 0
-total_repos = 0
-
-snapshot_total = 0
-
-for repo in repo_tool_histories_list:
-    total_repos += 1
-    error = False
-    for snap in repo['snapshots']:
-        snapshot_total += 1
-        for tool in snap['tools']:
-            if snap['date'] < tool_launch_dates[tool]:
-                count += 1
-                error = True
-                break
-    if error:
-        bad_repos += 1
-
-print('Total snapshots:', snapshot_total)
-print('Total repos:', total_repos)
-print('bad snapshots:', count)
-print('Bad repos:', bad_repos)
-print(f'Bad snap percentage {count/snapshot_total * 100}%')
-print(f'bad repos percentage {bad_repos/total_repos * 100}%')
+# Unset cleaned histories
+wrapper.db_2['repo_tools_history'].update_many({}, {'$unset' : {'cleaned' : 1}})
+# Delete cleaned histories
+wrapper.db_3['clean_tool_histories'].delete_many({})
