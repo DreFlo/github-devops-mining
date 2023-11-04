@@ -94,7 +94,7 @@ def retry_no_tree_founds_check_gha(tool_history, _ : MongoDBWrapper):
             tree['date'], tree['sha'] = snapshot['date'], snapshot['sha']
             new_snapshot = find_repo_trees_tools(tool_history['repo_full_name'], '', [tree])[0]
         tool_set = set(new_snapshot['tools'])
-        if 'CircleCI' in tool_set and 'GitHubActions' in tool_set:
+        if 'GitHubActions' in tool_set:
             if not check_has_gha(tool_history['repo_full_name'], new_snapshot['sha']):
                 print(f'No GHA found in {tool_history["repo_full_name"]} at {new_snapshot["sha"]}')
                 tool_set.remove('GitHubActions')

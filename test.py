@@ -8,9 +8,9 @@ from datetime import datetime
 
 wrapper = mongodb_wrappers.MongoDBWrapper()
 
-repo_list = list(wrapper.get_repositories({'retrieved_repo_histories' : True}, {'full_name' : 1, 'tree' : 1, 'tools_used' : 1, '_id' : 0}))
+# repo_list = list(wrapper.get_repositories({'retrieved_repo_histories' : True}, {'full_name' : 1, 'tree' : 1, 'tools_used' : 1, '_id' : 0}))
 
-print(len(repo_list))
+# print(len(repo_list))
 
 # repo_last_sha_map = {repo['full_name'] : (repo['tree'].split('/')[-1], repo['tools_used']) for repo in repo_list}
 
@@ -35,19 +35,17 @@ print(len(repo_list))
 
 # for repo in repo_list:
 #     tools_used = set(repo['tools_used'])
-#     if 'CircleCI' in tools_used:
+#     if 'Travis' in tools_used:
 #         circleci += 1
 #         if 'GitHubActions' in tools_used:
 #             circleci_githubactions += 1
-#             print(repo['full_name'])
-#             break
 #         else:
 #             # print(repo['full_name'])
 #             circleci_no_githubactions += 1
 
-# print(f'CircleCI: {circleci}')
-# print(f'CircleCI with GitHubActions: {circleci_githubactions}')
-# print(f'CircleCI without GitHubActions: {circleci_no_githubactions}')
+# print(f'Travis: {circleci}')
+# print(f'Travis with GitHubActions: {circleci_githubactions}')
+# print(f'Travis without GitHubActions: {circleci_no_githubactions}')
 
 # Unset cleaned histories
 wrapper.db_2['repo_tools_history'].update_many({}, {'$unset' : {'cleaned' : 1}})
