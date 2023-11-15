@@ -20,7 +20,7 @@ interrupted = threading.Event()
 futures = []
 
 def check_has_gha(full_name : str, sha : str) -> bool:
-    tree = get_repo_tree(full_name, sha, recursive=False)
+    tree = get_repo_tree(full_name, sha)
     if 'tree' not in tree:
         raise Exception('No tree found')
     for file in tree['tree']:
@@ -94,7 +94,7 @@ def retry_no_tree_founds_check_gha(tool_history, _ : MongoDBWrapper):
             tree['date'], tree['sha'] = snapshot['date'], snapshot['sha']
             new_snapshot = find_repo_trees_tools(tool_history['repo_full_name'], '', [tree])[0]
         tool_set = set(new_snapshot['tools'])
-        if 'GitHubActions' in tool_set:
+        if 'GitHubActions' in tool_set and len(tool_set) > 1:
             if not check_has_gha(tool_history['repo_full_name'], new_snapshot['sha']):
                 print(f'No GHA found in {tool_history["repo_full_name"]} at {new_snapshot["sha"]}')
                 tool_set.remove('GitHubActions')

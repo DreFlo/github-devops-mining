@@ -48,6 +48,31 @@ wrapper = mongodb_wrappers.MongoDBWrapper()
 # print(f'Travis without GitHubActions: {circleci_no_githubactions}')
 
 # Unset cleaned histories
-wrapper.db_2['repo_tools_history'].update_many({}, {'$unset' : {'cleaned' : 1}})
+# wrapper.db_2['repo_tools_history'].update_many({}, {'$unset' : {'cleaned' : 1}})
 # Delete cleaned histories
-wrapper.db_3['clean_tool_histories'].delete_many({})
+# wrapper.db_3['clean_tool_histories'].delete_many({})
+
+# full_names_set = set([repo['repo_full_name'] for repo in wrapper.db_3['clean_tool_histories'].find({}, {'repo_full_name' : 1, '_id' : 0})])
+
+# i = 0
+# empty_histories = 0
+
+# for name in full_names_set:
+#     history = wrapper.db_3['clean_tool_histories'].find_one({'repo_full_name' : name})
+    
+#     if len(history['snapshots']) != 0 and wrapper.db_3['dedup_clean_histories'].find_one({'full_name' : name}) is None:
+#         wrapper.db_3['dedup_clean_histories'].insert_one(history)
+#         i += 1
+
+#         if i % 1000 == 0:
+#             print(i)
+#     else:
+#         empty_histories += 1
+#         print(f'Empty history for {name}')
+
+# print(f'Empty histories: {empty_histories}')
+# print(f'Inserted histories: {i}')
+
+wrongly_processed = set([repo['full_name'] for repo in wrapper.db['random'].find({"retrieved_repo_histories" : True, "tools_used" : []}, {'full_name' : 1, '_id' : 0})])
+
+wrapper.db['random'].update_many({"retrieved_repo_histories" : True, "tools_used" : []}, {'$unset' : {'retrieved_repo_histories' : 1}})
