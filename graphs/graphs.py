@@ -5,6 +5,7 @@ from dateutil import parser
 import dateutil
 
 import plotly.graph_objects as go
+import plotly.offline as pyo
 
 tool_histories = None
 
@@ -71,8 +72,35 @@ def get_tools_for_year(snapshots : list[dict], year : int) -> set | None:
 
     return tools
 
+def get_max_tools_for_year(snapshots : list[dict], year : int) -> set | None:
+    tools = set()
+
+    active_in_year = False
+
+    if len(snapshots) == 0 or snapshots[0]['date'].year > year:
+        return None
+
+    for snapshot in snapshots:
+        if snapshot['date'].year == year:
+            active_in_year = True
+            if len(snapshot['tools']) > len(tools):
+                tools = set(snapshot['tools'])
+
+    # Get most recent snapshot if none found in year
+    if not active_in_year:
+        for snapshot in snapshots[::-1]:
+            if snapshot['date'].year < year:
+                # If repo not active since
+                if snapshot['sha'] == snapshots[-1]['sha']:
+                    return None
+                if len(snapshot['tools']) > len(tools):
+                    tools = set(snapshot['tools'])
+                break
+
+    return tools
+
 # end inclusive
-def group_tool_histories_by_year(tool_histories : dict, start : int, end : int, repo_set : set = None) -> dict:
+def group_tool_histories_by_year(tool_histories : dict, start : int, end : int, repo_set : set = None, get_tools_func = get_tools_for_year) -> dict:
     tool_histories_by_year = {year : {} for year in range(start, end + 1)}
 
     for tool_history in tool_histories:
@@ -83,7 +111,7 @@ def group_tool_histories_by_year(tool_histories : dict, start : int, end : int, 
         snapshots_with_datetime = sorted(snapshots_with_datetime, key=snapshot_date)
 
         for year in range(start, end + 1):
-            tools_for_year = get_tools_for_year(snapshots=snapshots_with_datetime, year=year)
+            tools_for_year = get_tools_func(snapshots=snapshots_with_datetime, year=year)
 
             if tools_for_year is not None:
                 tool_histories_by_year[year][tool_history['repo_full_name']] = tools_for_year
@@ -135,12 +163,12 @@ def get_repos_with_n_tools_histograms(tool_histories_by_year : dict) -> dict:
                 "x": {
                     "field": "number_of_tools",
                     "type": "nominal",
-                    "title" : "Number of tools"
+                    "title" : "# of tools"
                 },
                 "y": {
                     "field": "number_of_repos",
                     "type": "quantitative",
-                    "title" : "Number of repositories"
+                    "title" : "# of repositories"
                 }
             }
         }
@@ -194,12 +222,12 @@ def get_repos_with_n_tools_stacked_bar(tool_histories_by_year : dict) -> dict:
             "y": {
                 "field": "number_of_repos",
                 "type": "quantitative",
-                "title" : "Number of repos"
+                "title" : "# of repos"
             },
             "color": {
                 "field": "number_of_tools",
                 "type": "nominal",
-                "title": "Number of tools",
+                "title": "# of technologies",
                 "scale": {
                     "range": colors
                 }
@@ -227,7 +255,7 @@ def get_repos_with_n_tools_stacked_bar(tool_histories_by_year : dict) -> dict:
             "color": {
                 "field": "number_of_tools",
                 "type": "nominal",
-                "title": "Number of tools",
+                "title": "# of technologies",
                 "scale": {
                     "range": colors
                 }
@@ -297,12 +325,12 @@ def get_tool_counts_stacked_bar_chart(tool_counts_by_year : dict) -> dict:
             "y": {
                 "field": "count",
                 "type": "quantitative",
-                "title": "Number of repositories"
+                "title": "# of repositories"
             },
             "color": {
                 "field": "tool",
                 "type": "nominal",
-                "title": "Tool",
+                "title": "Technology",
                 "scale": {
                     "range": colors
                 }
@@ -378,7 +406,8 @@ def get_tool_changes_percentage_graph(tool_transitions_by_year : dict, active_re
                     "align": "center",
                     "baseline": "middle",
                     "dx": 15,
-                    "angle" : 270
+                    "angle": 90,
+                    "color" : "white"
                 },
                 "encoding": {
                     "text": {
@@ -441,7 +470,7 @@ def get_individual_tool_change_by_year_graph(tool_transitions_by_year : dict, to
             "y": {
                 "field": "amount",
                 "type": "quantitative",
-                "title": "Number of snapshots",
+                "title": "# of snapshots",
             },
             "color": {
                 "field": "type",
@@ -552,12 +581,12 @@ def get_snapshots_tool_counts_graph(snapshots_tool_counts_by_year : dict) -> dic
             "y": {
                 "field": "number_of_snapshots",
                 "type": "quantitative",
-                "title" : "Number of snapshots"
+                "title" : "# of snapshots"
             },
             "color": {
                 "field": "number_of_tools",
                 "type": "nominal",
-                "title": "Number of tools",
+                "title": "# of tools",
                 "scale": {
                     "range": colors
                 }
@@ -616,7 +645,7 @@ def get_mean_time_to_first_tool_by_year(repos_created_by_year : dict, time_to_fi
     repos_created_by_year_with_time_to_first_tool = {}
 
     for year in repos_created_by_year:
-        if year < 2012 or year > 2021:
+        if year < 2012 or year > 2023:
             continue
 
         repos_created_by_year_with_time_to_first_tool[year] = {}
@@ -653,7 +682,8 @@ def get_mean_time_to_first_tool_graph(mean_time_to_first_tool : dict) -> dict:
                     "align": "center",
                     "baseline": "middle",
                     "dx" : 15,
-                    "angle" : 270
+                    "angle": 90,
+                    "color" : "white"
                 }, 
                 "encoding": {
                     "text": {"field": "mean_time_to_first_tool", "type": "quantitative"}
@@ -669,7 +699,7 @@ def get_mean_time_to_first_tool_graph(mean_time_to_first_tool : dict) -> dict:
             "y": {
                 "field": "mean_time_to_first_tool",
                 "type": "quantitative",
-                "title" : "Mean time to first tool (days)"
+                "title" : "Mean time to first technology (days)"
             }
         }
     }
@@ -732,12 +762,72 @@ def get_fig_dict(transitions : dict, labels : list, colors : list) -> dict:
 
     return fig_dict
 
+def get_repos_with_more_than_one_tool(tools_by_year : dict) -> dict:
+    repos_with_more_than_one_tool = {}
+
+    for year in tools_by_year:
+        repos_with_more_than_one_tool[year] = set()
+
+        for repo in tools_by_year[year]:
+            if len(tools_by_year[year][repo]) > 1:
+                repos_with_more_than_one_tool[year].add(repo)
+
+    return repos_with_more_than_one_tool
+
+def get_repos_with_more_than_one_tool_graph(repos_with_more_then_one_tool):
+    graph = {
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "data": {
+            "values" : [{'year' : year, 'number_of_repos' : len(repos_with_more_then_one_tool[year])} for year in repos_with_more_then_one_tool]
+        },
+        "layer" : [
+            {
+                "mark": "bar"
+            },
+            {
+                "mark": {
+                    "type": "text",
+                    "align": "center",
+                    "baseline": "middle",
+                    "dx" : 15,
+                    "angle" : 270
+                }, 
+                "encoding": {
+                    "text": {"field": "number_of_repos", "type": "quantitative"}
+                }
+            }
+        ],
+        "encoding": {
+            "x": {
+                "field": "year",
+                "type": "nominal",
+                "title" : "Year"
+            },
+            "y": {
+                "field": "number_of_repos",
+                "type": "quantitative",
+                "title" : "# of repositories"
+            }
+        }
+    }
+
+    return graph
+
 print('Grouping tool histories by year')
 tools_by_year = group_tool_histories_by_year(tool_histories=tool_histories, start=2012, end=2023)
 
-# streaks = get_repo_activity_streaks(tool_histories_by_year=tools_by_year, start=2012, end=2023)
+print(json.dumps({year : len(tools_by_year[year].keys()) for year in tools_by_year}, indent=2))
 
-# streak_repo_sets = get_streak_repos(streaks=streaks, start=2012, end=2023)
+repos_with_more_than_one_tool = get_repos_with_more_than_one_tool(tools_by_year=tools_by_year)
+
+repos_with_more_than_one_tool_graph = get_repos_with_more_than_one_tool_graph(repos_with_more_then_one_tool=repos_with_more_than_one_tool)
+
+with open(f'repos_with_more_than_one_tool_graph.json', 'w') as file:
+     file.write(json.dumps(repos_with_more_than_one_tool_graph, indent=2))
+
+#streaks = get_repo_activity_streaks(tool_histories_by_year=tools_by_year, start=2012, end=2023)
+
+#streak_repo_sets = get_streak_repos(streaks=streaks, start=2012, end=2023)
 
 # print(len(streak_repo_sets[(2012, 2023)]))
 
@@ -773,23 +863,23 @@ tools_by_year = group_tool_histories_by_year(tool_histories=tool_histories, star
 # with open(f'tool_counts_stacked_bar_chart.json-{filename}', 'w') as file:
 #     file.write(json.dumps(stacked_bar_chart, indent=2))
 
-# print('Getting tool transitions by year (2012, 2023)')
-# tool_transitions_by_year_2012_2023 = get_tool_transitions_by_year(tool_histories=tool_histories, ignore_first_if_no_tools=True, repo_set=streak_repo_sets[(2012, 2023)])
+print('Getting tool transitions by year (2012, 2023)')
+tool_transitions_by_year_2012_2023 = get_tool_transitions_by_year(tool_histories=tool_histories, ignore_first_if_no_tools=True, repo_set=streak_repo_sets[(2012, 2023)])
 
-# print('Making tool changes percentage graph (2012, 2023)')
-# tool_changes_percentage_graph = get_tool_changes_percentage_graph(tool_transitions_by_year=tool_transitions_by_year_2012_2023, active_repo_streak=(2012, 2023), repo_set=streak_repo_sets[(2012, 2023)])
+print('Making tool changes percentage graph (2012, 2023)')
+tool_changes_percentage_graph = get_tool_changes_percentage_graph(tool_transitions_by_year=tool_transitions_by_year_2012_2023, active_repo_streak=(2012, 2023), repo_set=streak_repo_sets[(2012, 2023)])
 
-# with open(f'tool_changes_percentage_graph_2012_2023.json-{filename}', 'w') as file:
-#     file.write(json.dumps(tool_changes_percentage_graph, indent=2))
+with open(f'tool_changes_percentage_graph_2012_2023.json-{filename}', 'w') as file:
+    file.write(json.dumps(tool_changes_percentage_graph, indent=2))
 
-# print('Getting tool transitions by year')
-# tool_transitions_by_year = get_tool_transitions_by_year(tool_histories=tool_histories, ignore_first_if_no_tools=True)
+print('Getting tool transitions by year')
+tool_transitions_by_year = get_tool_transitions_by_year(tool_histories=tool_histories, ignore_first_if_no_tools=True)
 
-# print('Making tool changes percentage graph')
-# tool_changes_percentage_graph = get_tool_changes_percentage_graph(tool_transitions_by_year=tool_transitions_by_year)
+print('Making tool changes percentage graph')
+tool_changes_percentage_graph = get_tool_changes_percentage_graph(tool_transitions_by_year=tool_transitions_by_year)
 
-# with open(f'tool_changes_percentage_graph.json-{filename}', 'w') as file:
-#     file.write(json.dumps(tool_changes_percentage_graph, indent=2))
+with open(f'tool_changes_percentage_graph.json-{filename}', 'w') as file:
+    file.write(json.dumps(tool_changes_percentage_graph, indent=2))
 
 # print('Making individual tool change by year graphs')
 # github_actions_changes_by_year = get_individual_tool_change_by_year_graph(tool_transitions_by_year=tool_transitions_by_year_2012_2023, tool='GitHubActions')
@@ -841,16 +931,16 @@ tools_by_year = group_tool_histories_by_year(tool_histories=tool_histories, star
 # with open(f'snapshots_tool_counts_graph.json-{filename}', 'w') as file:
 #     file.write(json.dumps(snapshots_tool_counts_graph, indent=2))
 
-time_to_first_tool = get_time_to_first_tool(tool_histories=tool_histories)
+# time_to_first_tool = get_time_to_first_tool(tool_histories=tool_histories)
 
-repos_created_by_year = get_repos_created_in_year()
+# repos_created_by_year = get_repos_created_in_year()
 
-mean_time_to_fist_tool = get_mean_time_to_first_tool_by_year(repos_created_by_year=repos_created_by_year, time_to_first_tool=time_to_first_tool)
+# mean_time_to_fist_tool = get_mean_time_to_first_tool_by_year(repos_created_by_year=repos_created_by_year, time_to_first_tool=time_to_first_tool)
 
-mean_time_to_first_tool_graph = get_mean_time_to_first_tool_graph(mean_time_to_first_tool=mean_time_to_fist_tool)
+# mean_time_to_first_tool_graph = get_mean_time_to_first_tool_graph(mean_time_to_first_tool=mean_time_to_fist_tool)
 
-with open(f'mean_time_to_first_tool_graph.json-{filename}', 'w') as file:
-    file.write(json.dumps(mean_time_to_first_tool_graph, indent=2))
+# with open(f'mean_time_to_first_tool_graph.json-{filename}', 'w') as file:
+#     file.write(json.dumps(mean_time_to_first_tool_graph, indent=2))
 
 # repos_using_travis_ci_only_2019 = get_repos_using_tool(tools_for_year=tools_by_year[2019], tools='Travis', no_tools='EXCLUDE_ALL_OTHER_TOOLS')
 
@@ -892,3 +982,5 @@ with open(f'mean_time_to_first_tool_graph.json-{filename}', 'w') as file:
 # )])
 
 # fig.show()
+
+#fig.write_image(f'travis_ci_only_2019_active_2023_sankey.png')
